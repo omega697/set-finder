@@ -7,10 +7,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
+import androidx.compose.material.Button
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.PermissionRequired
 import com.guywithburrito.setfinder.ui.theme.SetFinderTheme
+import com.google.accompanist.permissions.rememberPermissionState
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -26,9 +30,24 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun Greeting(name: String) {
-    Text(text = "Hello $name!")
+    val cameraPermissionState= rememberPermissionState(android.Manifest.permission.CAMERA)
+    PermissionRequired(
+        permissionState = cameraPermissionState,
+        permissionNotGrantedContent = {
+            Button(onClick = {
+                cameraPermissionState.launchPermissionRequest()
+            }) {
+                Text("Grant permission")
+            }
+        },
+        permissionNotAvailableContent = {
+            Text("Sorry, the Camera permission isn't available!")
+        }) {
+        Text(text = "Hello $name!")
+    }
 }
 
 @Preview(showBackground = true)
