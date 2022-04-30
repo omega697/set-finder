@@ -23,7 +23,7 @@ class MainActivity : ComponentActivity() {
             SetFinderTheme {
                 // A surface container using the 'background' color from the theme
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
-                    Greeting("Android")
+                   PermissionPreview()
                 }
             }
         }
@@ -32,7 +32,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun Greeting(name: String) {
+fun PermissionPreview() {
     val cameraPermissionState= rememberPermissionState(android.Manifest.permission.CAMERA)
     PermissionRequired(
         permissionState = cameraPermissionState,
@@ -46,14 +46,6 @@ fun Greeting(name: String) {
         permissionNotAvailableContent = {
             Text("Sorry, the Camera permission isn't available!")
         }) {
-        Text(text = "Hello $name!")
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun DefaultPreview() {
-    SetFinderTheme {
-        Greeting("Android")
+        CameraPreview()
     }
 }
