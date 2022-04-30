@@ -1,6 +1,5 @@
 package com.guywithburrito.setfinder
 
-import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 
