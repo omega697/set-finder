@@ -13,3 +13,17 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# ML Data & Virtual Environments
+ml/venv/
+ml/*.keras
+ml/*.tflite
+ml/*.log
+ml/predictions/
+ml/pred_buffer/
+ml/raw_data/
+ml/reverify_output/
+
+# Training Data
+# Ignore external files (prefixed with ext_) in any dataset subdirectory
+ml/dataset/**/ext_*

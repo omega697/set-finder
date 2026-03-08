@@ -4,18 +4,15 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.guywithburrito.setfinder.ui.SetFinderView
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material.Button
+import androidx.compose.ui.Modifier
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
-import androidx.compose.material.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.PermissionRequired
-import com.google.accompanist.permissions.rememberPermissionState
-import com.guywithburrito.setfinder.ui.theme.SetFinderTheme
+import com.guywithburrito.setfinder.ui.SetFinderTheme
 import org.opencv.android.OpenCVLoader
+
+import com.guywithburrito.setfinder.ui.SetFinderNavGraph
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,34 +24,13 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             SetFinderTheme {
-                // A surface container using the 'background' color from the theme
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colors.background
                 ) {
-                    PermissionPreview()
+                    SetFinderNavGraph()
                 }
             }
         }
     }
-}
-
-@OptIn(ExperimentalPermissionsApi::class)
-@Composable
-fun PermissionPreview() {
-    val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
-    PermissionRequired(
-        permissionState = cameraPermissionState,
-        permissionNotGrantedContent = {
-            Button(onClick = {
-                cameraPermissionState.launchPermissionRequest()
-            }) {
-                Text("Grant permission")
-            }
-        },
-        permissionNotAvailableContent = {
-            Text("Sorry, the Camera permission isn't available!")
-        }) {
-        SetFinderView()
     }
-}
