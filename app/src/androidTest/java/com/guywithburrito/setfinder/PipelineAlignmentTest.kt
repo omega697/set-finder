@@ -7,7 +7,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import com.guywithburrito.setfinder.cv.CardFinder
 import com.guywithburrito.setfinder.cv.CardUnwarper
-import com.guywithburrito.setfinder.ml.TFLiteCardIdentifier
+import com.guywithburrito.setfinder.cv.ChipExtractor
+import com.guywithburrito.setfinder.ml.CardIdentifier
 import com.guywithburrito.setfinder.ml.*
 import com.guywithburrito.setfinder.cv.OpenCVWhiteBalancer
 import org.junit.Before
@@ -33,7 +34,7 @@ class PipelineAlignmentTest {
 
     @Test
     fun stage0_LoadAssets_VerifiesImageLoading() {
-        val mat = loadFullFrame("cards_13_wide_shot.jpg")
+        val mat = loadFullFrame("scenes/cards_13_wide_shot.jpg")
         assertThat(mat.width()).isAtLeast(500)
         assertThat(mat.height()).isAtLeast(500)
         saveDebugMat(mat, "alignment_stage0_load.jpg")
@@ -41,7 +42,7 @@ class PipelineAlignmentTest {
 
     @Test
     fun stage1_Detection_FindsCorrectCount() {
-        val mat = loadFullFrame("cards_13_wide_shot.jpg")
+        val mat = loadFullFrame("scenes/cards_13_wide_shot.jpg")
         val finder = CardFinder()
         val cards = finder.findLikelyCards(mat)
         
@@ -52,7 +53,7 @@ class PipelineAlignmentTest {
 
     @Test
     fun stage2_Unwarp_ProducesCorrectDimensions() {
-        val mat = loadFullFrame("card_1_green_shaded_diamond.jpg")
+        val mat = loadFullFrame("scenes/card_1_green_shaded_diamond.jpg")
         val finder = CardFinder()
         val unwarper = CardUnwarper()
         
@@ -71,7 +72,23 @@ class PipelineAlignmentTest {
 
     @Test
     fun stage3_Identification_MatchesV12Expectations() {
-        // ... (existing code)
+        val appContext = InstrumentationRegistry.getInstrumentation().targetContext
+        val extractor = ChipExtractor()
+        val identifier = CardIdentifier.getInstance(appContext)
+        
+        val mat = loadFullFrame("scenes/card_1_green_shaded_diamond.jpg")
+        val finder = CardFinder()
+        val quads = finder.findCandidates(mat)
+        assertThat(quads).isNotEmpty()
+        
+        val chip = extractor.extract(mat, quads[0])
+        val result = identifier.identifyCard(chip)
+        
+        assertNotNull(result)
+        assertThat(result.color).isEqualTo(com.guywithburrito.setfinder.card.SetCard.Color.GREEN)
+        
+        identifier.close()
+        mat.release()
     }
 
     @Test

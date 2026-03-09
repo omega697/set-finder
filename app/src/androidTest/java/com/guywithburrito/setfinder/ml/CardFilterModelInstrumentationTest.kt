@@ -26,46 +26,50 @@ class CardFilterModelInstrumentationTest {
         val testContext = InstrumentationRegistry.getInstrumentation().context
         
         val filter = TFLiteCardFilterModel(appContext)
-        val assets = testContext.assets.list("") ?: emptyArray()
         
-        val errors = StringBuilder()
+        val logBuilder = StringBuilder()
         var passed = 0
         var tested = 0
         
-        assets.forEach { assetName ->
+        // 1. Test Confirmed Cards
+        testContext.assets.list("chips/cards")?.forEach { assetName ->
             if (!assetName.endsWith(".jpg")) return@forEach
-            
-            // Skip full scenes
-            if (assetName.contains("no_set") || assetName.contains("wide_shot") || assetName.contains("sets")) return@forEach
-
             tested++
-            val inputStream = testContext.assets.open(assetName)
+            val inputStream = testContext.assets.open("chips/cards/$assetName")
             val bitmap = BitmapFactory.decodeStream(inputStream)
             
             var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
             tensorImage.load(bitmap)
             tensorImage = imageProcessor.process(tensorImage)
-            
             val confidence = filter.getConfidence(tensorImage.buffer)
-            android.util.Log.d("CardFilterTest", "Asset: $assetName, confidence=$confidence")
             
-            val isExpectedCard = assetName.startsWith("test_") || assetName.startsWith("card_") || assetName.startsWith("chip_")
-            val isExpectedNonCard = assetName.contains("no_cards") || assetName.contains("NONE")
+            val pass = confidence >= 0.1f
+            if (pass) passed++
+            logBuilder.append(String.format("chips/cards/%s: conf=%.6f -> %s\n", assetName, confidence, if (pass) "PASS" else "FAIL"))
+        }
+
+        // 2. Test Confirmed Non-Cards
+        testContext.assets.list("chips/non_cards")?.forEach { assetName ->
+            if (!assetName.endsWith(".jpg")) return@forEach
+            tested++
+            val inputStream = testContext.assets.open("chips/non_cards/$assetName")
+            val bitmap = BitmapFactory.decodeStream(inputStream)
             
-            if (isExpectedCard && confidence < 0.1f) {
-                errors.append("REJECTED Card $assetName (conf=${String.format("%.3f", confidence)})\n")
-            } else if (isExpectedNonCard && confidence >= 0.1f) {
-                errors.append("ACCEPTED Non-Card $assetName (conf=${String.format("%.3f", confidence)})\n")
-            } else {
-                passed++
-            }
+            var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
+            tensorImage.load(bitmap)
+            tensorImage = imageProcessor.process(tensorImage)
+            val confidence = filter.getConfidence(tensorImage.buffer)
+            
+            val pass = confidence < 0.1f
+            if (pass) passed++
+            logBuilder.append(String.format("chips/non_cards/%s: conf=%.6f -> %s\n", assetName, confidence, if (pass) "PASS" else "FAIL"))
         }
         
         filter.close()
         
+        android.util.Log.d("CardFilterTest", "Results:\n$logBuilder")
         android.util.Log.d("CardFilterTest", "Passed $passed / $tested")
-        if (errors.isNotEmpty()) {
-            throw AssertionError("Card filter accuracy test failed with ${tested - passed} errors:\n$errors")
-        }
+        
+        assertThat(passed).isEqualTo(tested)
     }
 }

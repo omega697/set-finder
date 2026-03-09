@@ -3,6 +3,7 @@ package com.guywithburrito.setfinder.ml
 import android.graphics.BitmapFactory
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.guywithburrito.setfinder.SetCardTestUtils
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,15 +27,17 @@ class CardExpertModelInstrumentationTest {
         val testContext = InstrumentationRegistry.getInstrumentation().context
         
         val expert = TFLiteExpertModel(appContext)
-        val assets = testContext.assets.list("") ?: emptyArray()
-        
-        val testChips = assets.filter { it.startsWith("test_") && it.endsWith(".jpg") && !it.contains("NONE") }
+        val assets = testContext.assets.list("chips/cards") ?: emptyArray()
         
         val errors = StringBuilder()
         var passed = 0
+        var tested = 0
         
-        testChips.forEach { assetName ->
-            val inputStream = testContext.assets.open(assetName)
+        assets.forEach { assetName ->
+            if (!assetName.endsWith(".jpg") || assetName.contains("NONE")) return@forEach
+            tested++
+            
+            val inputStream = testContext.assets.open("chips/cards/$assetName")
             val bitmap = BitmapFactory.decodeStream(inputStream)
             
             var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
@@ -49,11 +52,12 @@ class CardExpertModelInstrumentationTest {
             val cntIdx = argmax(predictions[2]!!)
             val patIdx = argmax(predictions[3]!!)
             
-            val expected = parseLabel(assetName)
+            val expectedCard = SetCardTestUtils.parseLabelFromFilename(assetName)
+            val expected = expectedCard?.let { SetCardTestUtils.formatLabel(it) } ?: "???"
             val actual = mapToLabel(colIdx, shpIdx, cntIdx, patIdx)
             
             if (actual != expected) {
-                errors.append("FAILED $assetName: expected $expected, but was $actual\n")
+                errors.append("FAILED chips/cards/$assetName: expected [$expected], but was [$actual]\n")
             } else {
                 passed++
             }
@@ -61,9 +65,9 @@ class CardExpertModelInstrumentationTest {
         
         expert.close()
         
-        android.util.Log.d("CardExpertTest", "Passed $passed / ${testChips.size}")
+        android.util.Log.d("CardExpertTest", "Passed $passed / $tested")
         if (errors.isNotEmpty()) {
-            throw AssertionError("Expert model accuracy test failed with ${testChips.size - passed} errors:\n$errors")
+            throw AssertionError("Expert model accuracy test failed with ${tested - passed} errors:\n$errors")
         }
     }
 
@@ -73,13 +77,7 @@ class CardExpertModelInstrumentationTest {
         return bestIdx
     }
 
-    private fun parseLabel(filename: String): String {
-        // Format: test_ONE_RED_EMPTY_DIAMOND.jpg -> "ONE RED EMPTY DIAMOND"
-        return filename.removePrefix("test_").removeSuffix(".jpg").replace("_", " ")
-    }
-
     private fun mapToLabel(colIdx: Int, shpIdx: Int, cntIdx: Int, patIdx: Int): String {
-        // Using v12 canonical mapping logic
         val colors = listOf("NONE", "RED", "GREEN", "PURPLE")
         val shapes = listOf("NONE", "OVAL", "DIAMOND", "SQUIGGLE")
         val counts = listOf("NONE", "ONE", "TWO", "THREE")

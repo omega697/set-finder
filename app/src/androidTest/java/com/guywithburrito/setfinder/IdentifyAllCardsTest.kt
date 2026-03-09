@@ -6,17 +6,18 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.guywithburrito.setfinder.card.SetCard
 import com.guywithburrito.setfinder.cv.CardFinder
-import com.guywithburrito.setfinder.cv.CardUnwarper
-import com.guywithburrito.setfinder.ml.TFLiteCardIdentifier
-import com.guywithburrito.setfinder.ml.*
-import com.guywithburrito.setfinder.cv.OpenCVWhiteBalancer
+import com.guywithburrito.setfinder.cv.ChipExtractor
+import com.guywithburrito.setfinder.ml.CardIdentifier
 import com.guywithburrito.setfinder.tracking.SettingsManager
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
-import org.opencv.core.*
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint2f
+import org.opencv.core.Point
+import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import java.io.File
 import java.io.FileOutputStream
@@ -25,44 +26,34 @@ import kotlinx.coroutines.MainScope
 @RunWith(AndroidJUnit4::class)
 class IdentifyAllCardsTest {
 
-    private lateinit var analyzer: SetAnalyzer
-
     @Before
     fun setUp() {
         OpenCVLoader.initDebug()
-        val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        val settingsManager = SettingsManager(appContext)
-        analyzer = SetAnalyzer(appContext, MainScope(), settingsManager)
     }
 
     @Test
-    fun logAllIdentifiedCards() {
-        val mat = loadAsset("cards_12_3_sets.jpg")
-        
-        // 1. Detection
+    fun verifyCanonicalMappingsForKnownImages() {
+        val mat = loadAsset("scenes/cards_12_3_sets.jpg")
         val maxDim = 1000.0
         val scale = maxDim / Math.max(mat.cols().toDouble(), mat.rows().toDouble())
         val small = Mat()
         Imgproc.resize(mat, small, Size(), scale, scale, Imgproc.INTER_AREA)
-        
-        // Use the internal finder via reflection or just duplicate the logic for a clean test
-        val finder = CardFinder(SettingsManager(InstrumentationRegistry.getInstrumentation().targetContext))
-        val quads = finder.findLikelyCards(small)
-        
+
+        val finder = CardFinder()
+        val quads = finder.findCandidates(small)
         android.util.Log.d("IdentifyAll", "Detected ${quads.size} cards.")
+
+        // 1. Setup Modular components
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val extractor = ChipExtractor()
+        val identifier = CardIdentifier.getInstance(context)
 
         // 2. Identification & Logging
         quads.forEachIndexed { index, quad ->
             val corners = quad.toArray().map { p -> Point(p.x / scale, p.y / scale) }
             val fullResQuad = MatOfPoint2f(*corners.toTypedArray())
             
-            val unwarper = CardUnwarper()
-            val warped = unwarper.unwarp(mat, fullResQuad)
-            
-            val bmp = Bitmap.createBitmap(warped.cols(), warped.rows(), Bitmap.Config.ARGB_8888)
-            Utils.matToBitmap(warped, bmp)
-            
-            val identifier = TFLiteCardIdentifier(TFLiteCardFilterModel(InstrumentationRegistry.getInstrumentation().targetContext), TFLiteExpertModel(InstrumentationRegistry.getInstrumentation().targetContext), CardModelMapper.V12, OpenCVWhiteBalancer())
+            val bmp = extractor.extract(mat, fullResQuad)
             val result = identifier.identifyCard(bmp)
             
             android.util.Log.d("IdentifyAll", "Card #$index: $result")
@@ -70,11 +61,10 @@ class IdentifyAllCardsTest {
             // Save for inspection
             saveBitmap(bmp, "chip_$index.jpg")
             
-            warped.release()
             fullResQuad.release()
-            identifier.close()
         }
         
+        identifier.close()
         mat.release()
         small.release()
     }
@@ -89,12 +79,11 @@ class IdentifyAllCardsTest {
         return mat
     }
 
-    private fun saveBitmap(bmp: Bitmap, name: String) {
-        val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        val file = File(appContext.cacheDir, name)
+    private fun saveBitmap(bitmap: Bitmap, filename: String) {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val file = File(context.getExternalFilesDir(null), filename)
         FileOutputStream(file).use { out ->
-            bmp.compress(Bitmap.CompressFormat.JPEG, 100, out)
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
         }
-        android.util.Log.d("IdentifyAll", "Saved $name to: ${file.absolutePath}")
     }
 }

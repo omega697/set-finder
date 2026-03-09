@@ -4,8 +4,9 @@ import android.graphics.BitmapFactory
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
-import com.guywithburrito.setfinder.cv.*
-import com.guywithburrito.setfinder.ml.*
+import com.guywithburrito.setfinder.cv.CardFinder
+import com.guywithburrito.setfinder.cv.ChipExtractor
+import com.guywithburrito.setfinder.ml.CardIdentifier
 import com.guywithburrito.setfinder.tracking.SettingsManager
 import org.junit.Before
 import org.junit.Test
@@ -27,19 +28,15 @@ class SetFinderIntegrationTest {
     fun analyze_findsThreeSetsInSampleImage() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         val settingsManager = SettingsManager(appContext)
+        
         val detector = SetDetector(
             CardFinder(settingsManager),
-            CardUnwarper(),
-            TFLiteCardIdentifier(
-                TFLiteCardFilterModel(appContext), 
-                TFLiteExpertModel(appContext), 
-                CardModelMapper.V12, 
-                OpenCVWhiteBalancer()
-            )
+            ChipExtractor(),
+            CardIdentifier.getInstance(appContext)
         )
         
         // Load the 12-card test image (Ground Truth: has 3+ sets)
-        val mat = loadAsset("cards_12_3_sets.jpg")
+        val mat = loadAsset("scenes/cards_12_3_sets.jpg")
         
         // One-shot modular pipeline (Sync)
         val sets = detector.detectSets(mat)

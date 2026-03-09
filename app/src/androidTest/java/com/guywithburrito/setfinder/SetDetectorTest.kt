@@ -5,10 +5,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import com.guywithburrito.setfinder.cv.CardFinder
-import com.guywithburrito.setfinder.cv.CardUnwarper
-import com.guywithburrito.setfinder.ml.TFLiteCardIdentifier
-import com.guywithburrito.setfinder.ml.*
-import com.guywithburrito.setfinder.cv.OpenCVWhiteBalancer
+import com.guywithburrito.setfinder.cv.ChipExtractor
+import com.guywithburrito.setfinder.ml.CardIdentifier
 import com.guywithburrito.setfinder.tracking.SettingsManager
 import org.junit.Before
 import org.junit.Test
@@ -30,24 +28,26 @@ class SetDetectorTest {
     fun detectSets_findsThreeSetsInSampleImage() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         val settingsManager = SettingsManager(appContext)
+        
         val finder = CardFinder(settingsManager)
-        val unwarper = CardUnwarper()
-        val identifier = TFLiteCardIdentifier(TFLiteCardFilterModel(appContext), TFLiteExpertModel(appContext), CardModelMapper.V12, OpenCVWhiteBalancer())
-        val detector = SetDetector(finder, unwarper, identifier)
+        val extractor = ChipExtractor()
+        val identifier = CardIdentifier.getInstance(appContext)
+        
+        val detector = SetDetector(finder, extractor, identifier)
         
         // 1. Load the 12-card test image
-        val mat = loadAsset("cards_12_3_sets.jpg")
+        val mat = loadAsset("scenes/cards_12_3_sets.jpg")
         
         // 2. Perform one-shot detection
         val sets = detector.detectSets(mat)
         
         android.util.Log.d("SetDetectorTest", "Found ${sets.size} sets.")
         
-        // 3. Should find exactly 3 sets (or at least 3)
+        // 3. Should find at least 3 sets
         assertThat(sets.size).isAtLeast(3)
         
         mat.release()
-        identifier.close()
+        detector.close()
     }
 
     private fun loadAsset(assetName: String): Mat {
