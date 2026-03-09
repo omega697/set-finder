@@ -60,4 +60,8 @@ class SettingsManager(context: Context) {
     var showLabels: Boolean
         get() = prefs.getBoolean("show_labels", true)
         set(value) = prefs.edit().putBoolean("show_labels", value).apply()
+
+    var arMode: Boolean
+        get() = prefs.getBoolean("ar_mode", false)
+        set(value) = prefs.edit().putBoolean("ar_mode", value).apply()
 }

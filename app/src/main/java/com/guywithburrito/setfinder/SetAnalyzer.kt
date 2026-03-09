@@ -1,5 +1,6 @@
 package com.guywithburrito.setfinder
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
@@ -9,9 +10,21 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.guywithburrito.setfinder.cv.CardFinder
 import com.guywithburrito.setfinder.cv.CardUnwarper
+import com.guywithburrito.setfinder.cv.FrameProcessor
+import com.guywithburrito.setfinder.cv.OpenCVFrameProcessor
+import com.guywithburrito.setfinder.cv.OpenCVWhiteBalancer
+import com.guywithburrito.setfinder.ml.CardIdentifier
 import com.guywithburrito.setfinder.ml.TFLiteCardIdentifier
+import com.guywithburrito.setfinder.ml.TFLiteCardFilterModel
+import com.guywithburrito.setfinder.ml.TFLiteExpertModel
+import com.guywithburrito.setfinder.ml.CardModelMapper
 import com.guywithburrito.setfinder.tracking.CardTracker
 import com.guywithburrito.setfinder.tracking.TrackedCard
+import com.guywithburrito.setfinder.tracking.HistoryPersistence
+import com.guywithburrito.setfinder.tracking.SettingsManager
+import com.guywithburrito.setfinder.card.SetCard
+import com.guywithburrito.setfinder.card.SetSolver
+import com.guywithburrito.setfinder.card.DefaultSetSolver
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
 import java.nio.ByteBuffer
@@ -22,12 +35,23 @@ import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicBoolean
 
 class SetAnalyzer(
-    private val context: android.content.Context,
+    private val context: Context,
     private val scope: CoroutineScope,
-    val settingsManager: com.guywithburrito.setfinder.tracking.SettingsManager
+    val settingsManager: SettingsManager,
+    private val finder: CardFinder = CardFinder(settingsManager),
+    private val tracker: CardTracker = CardTracker(),
+    private val solver: SetSolver = DefaultSetSolver(),
+    private val frameProcessor: FrameProcessor = OpenCVFrameProcessor(),
+    private val identifier: CardIdentifier = TFLiteCardIdentifier(
+        TFLiteCardFilterModel(context),
+        TFLiteExpertModel(context),
+        CardModelMapper.V12,
+        OpenCVWhiteBalancer()
+    ),
+    private val detector: SetDetector = SetDetector(finder, CardUnwarper(), identifier, frameProcessor)
 ) : ImageAnalysis.Analyzer {
-    private val historyPersistence = com.guywithburrito.setfinder.tracking.HistoryPersistence(context)
-    private val seenSetsInSession = mutableSetOf<Set<com.guywithburrito.setfinder.card.SetCard>>()
+    private val historyPersistence = HistoryPersistence(context)
+    private val seenSetsInSession = mutableSetOf<Set<SetCard>>()
 
     private val _detectedRects = mutableStateListOf<TrackedCard>()
     val detectedRects: SnapshotStateList<TrackedCard> = _detectedRects
@@ -38,73 +62,83 @@ class SetAnalyzer(
     private val _allCandidates = mutableStateListOf<List<Point>>()
     val allCandidates: SnapshotStateList<List<Point>> = _allCandidates
 
-    var analysisWidth by mutableStateOf(1)
+    var analysisWidth by mutableStateOf(1000f)
         private set
-    var analysisHeight by mutableStateOf(1)
+    var analysisHeight by mutableStateOf(1000f)
         private set
         
     var debugMode by mutableStateOf(false)
     var singleCardMode by mutableStateOf(false)
     var showLabels by mutableStateOf(settingsManager.showLabels)
 
-    private val finder = CardFinder(settingsManager)
-    private val unwarper = CardUnwarper()
-    private val identifier = TFLiteCardIdentifier(context)
-    private val tracker = CardTracker()
-
-    // Decoupled ID state
     private val isIdentifying = AtomicBoolean(false)
     private var lastFrameForId: Mat? = null
     private var lastScaleForId: Double = 1.0
 
+    init {
+        scope.launch {
+            while (isActive) {
+                tracker.activeCards.toList().forEach { it.updateSmoothing(it.bounds) }
+                kotlinx.coroutines.delay(16)
+            }
+        }
+    }
+
+    fun analyzeARFrame(frame: com.google.ar.core.Frame) {
+        if (isIdentifying.get()) return
+        
+        scope.launch(Dispatchers.Default) {
+            try {
+                val image = frame.acquireCameraImage() ?: return@launch
+                val nv21 = nv21(image.planes[0].buffer, image.planes[1].buffer, image.planes[2].buffer)
+                val yuvMat = frameProcessor.createMat()
+                yuvMat.put(0, 0, nv21)
+                
+                val frameMat = frameProcessor.createMat()
+                frameProcessor.yuvToRgb(yuvMat, frameMat)
+                
+                val portraitMat = frameProcessor.createMat()
+                frameProcessor.rotate(frameMat, portraitMat, Core.ROTATE_90_CLOCKWISE)
+                
+                analyzeMat(portraitMat)
+                
+                portraitMat.release(); frameMat.release(); yuvMat.release()
+                image.close()
+            } catch (e: Exception) {
+                Log.e("SetAnalyzer", "AR Analysis failed", e)
+            }
+        }
+    }
+
     override fun analyze(image: ImageProxy) {
         val frame: Mat = image.toMat()
         val rotationDegrees = image.imageInfo.rotationDegrees
-        android.util.Log.d("SetAnalyzer", "ImageProxy: ${image.width}x${image.height}, rotation: $rotationDegrees")
-        val rotatedFrame = Mat()
-        if (rotationDegrees == 90) {
-            Core.rotate(frame, rotatedFrame, Core.ROTATE_90_CLOCKWISE)
-        } else if (rotationDegrees == 180) {
-            Core.rotate(frame, rotatedFrame, Core.ROTATE_180)
-        } else if (rotationDegrees == 270) {
-            Core.rotate(frame, rotatedFrame, Core.ROTATE_90_COUNTERCLOCKWISE)
-        } else {
-            frame.copyTo(rotatedFrame)
+        val rotatedFrame = frameProcessor.createMat()
+        when (rotationDegrees) {
+            90 -> frameProcessor.rotate(frame, rotatedFrame, Core.ROTATE_90_CLOCKWISE)
+            180 -> frameProcessor.rotate(frame, rotatedFrame, Core.ROTATE_180)
+            270 -> frameProcessor.rotate(frame, rotatedFrame, Core.ROTATE_90_COUNTERCLOCKWISE)
+            else -> frame.copyTo(rotatedFrame)
         }
         
         analyzeMat(rotatedFrame)
-        frame.release()
-        rotatedFrame.release()
+        frame.release(); rotatedFrame.release()
         image.close()
     }
 
     fun analyzeMat(frame: Mat) {
-        val frameWidth = frame.cols()
-        val frameHeight = frame.rows()
+        analysisWidth = frame.cols().toFloat()
+        analysisHeight = frame.rows().toFloat()
         
         val maxDim = 1000.0
-        val scale = maxDim / Math.max(frameWidth.toDouble(), frameHeight.toDouble())
-        val analysisFrame = Mat()
-        if (scale < 1.0) {
-            Imgproc.resize(frame, analysisFrame, Size(), scale, scale, Imgproc.INTER_AREA)
-        } else {
-            frame.copyTo(analysisFrame)
-        }
+        val scale = maxDim / Math.max(frame.cols().toDouble(), frame.rows().toDouble())
+        val analysisFrame = frameProcessor.createMat()
+        frameProcessor.resize(frame, analysisFrame, Size(), scale, scale, Imgproc.INTER_AREA)
         
-        val actualW = analysisFrame.cols()
-        val actualH = analysisFrame.rows()
-        android.util.Log.d("SetAnalyzer", "Frame: ${frameWidth}x${frameHeight} -> Analysis: ${actualW}x${actualH}, scale=${scale}")
-
-        scope.launch(Dispatchers.Main) {
-            analysisWidth = actualW
-            analysisHeight = actualH
-        }
-
-        // 1. FAST DETECTION AND TRACKING
         var quads = finder.findLikelyCards(analysisFrame)
         
         if (singleCardMode) {
-            val center = Point(actualW / 2.0, actualH / 2.0)
+            val center = Point(analysisFrame.cols() / 2.0, analysisFrame.rows() / 2.0)
             val best = quads.minByOrNull { q ->
                 val p = q.toList()
                 val qc = Point(p.sumOf { it.x } / 4.0, p.sumOf { it.y } / 4.0)
@@ -116,86 +150,37 @@ class SetAnalyzer(
         val candidatePoints = quads.map { it.toList() }
         val trackedCards = tracker.updateGeometric(candidatePoints)
 
-        // 2. TRIGGER OUT-OF-BAND IDENTIFICATION
         if (!isIdentifying.get()) {
             val cardsToId = tracker.getCardsForIdentification()
             if (cardsToId.isNotEmpty()) {
                 lastFrameForId?.release()
-                lastFrameForId = frame.clone() // frame is the high-res rotated frame
+                lastFrameForId = frame.clone()
                 lastScaleForId = scale
                 startAsyncIdentification(cardsToId)
             }
         }
         
-        // 3. FIND SETS among identified cards
         val identifiedOnly = trackedCards.filter { it.card != null }
-        val threshold = 1.0f - settingsManager.sensitivity
+        val identifiedCards = identifiedOnly.map { it.card!! }
+        val solvedSets = solver.solve(identifiedCards)
+        
         val sets = mutableListOf<List<TrackedCard>>()
-        if (identifiedOnly.size >= 3) {
-            for (i in 0 until identifiedOnly.size) {
-                for (j in i + 1 until identifiedOnly.size) {
-                    for (k in j + 1 until identifiedOnly.size) {
-                        val c1 = identifiedOnly[i]; val c2 = identifiedOnly[j]; val c3 = identifiedOnly[k]
-                        val card1 = c1.card!!; val card2 = c2.card!!; val card3 = c3.card!!
-                        if (com.guywithburrito.setfinder.card.SetCard.isSet(card1, card2, card3)) {
-                            val set = listOf(c1, c2, c3)
-                            sets.add(set)
-                            
-                            // Session History: Save if this is a new set of attributes
-                            val attributeSet = setOf(card1, card2, card3)
-                            if (attributeSet !in seenSetsInSession) {
-                                seenSetsInSession.add(attributeSet)
-                                // Clone frame for capture
-                                captureAndSaveSet(set, frame.clone())
-                            }
-                        }
-                    }
-                }
+        solvedSets.forEach { setCards ->
+            val trackedSet = setCards.map { card -> identifiedOnly.first { it.card == card } }
+            sets.add(trackedSet)
+            
+            if (setCards.toSet() !in seenSetsInSession) {
+                seenSetsInSession.add(setCards.toSet())
+                captureAndSaveSet(trackedSet, frame.clone(), scale)
             }
         }
         analysisFrame.release()
 
-        // 4. Update UI state on Main Thread
         scope.launch(Dispatchers.Main) {
-            _detectedRects.clear()
-            trackedCards.forEach { card ->
-                // Keep original points; SetFinderView will scale them to the canvas
-                _detectedRects.add(card.copy())
-            }
-
-            _foundSets.clear()
-            sets.forEach { set ->
-                _foundSets.add(set.map { it.copy() })
-            }
-            
+            _detectedRects.clear(); _detectedRects.addAll(trackedCards)
+            _foundSets.clear(); _foundSets.addAll(sets)
             _allCandidates.clear()
-            if (debugMode) {
-                candidatePoints.forEach { quad ->
-                    _allCandidates.add(quad.map { Point(it.x, it.y) })
-                }
-            }
-        }
-    }
-
-    private fun captureAndSaveSet(set: List<TrackedCard>, frame: Mat) {
-        scope.launch(Dispatchers.Default) {
-            try {
-                val cardPairs = set.mapNotNull { tracked ->
-                    val card = tracked.card ?: return@mapNotNull null
-                    val matOfPoint2f = MatOfPoint2f(*tracked.bounds.toTypedArray())
-                    val warped = unwarper.unwarp(frame, matOfPoint2f)
-                    val bmp = Bitmap.createBitmap(warped.cols(), warped.rows(), Bitmap.Config.ARGB_8888)
-                    org.opencv.android.Utils.matToBitmap(warped, bmp)
-                    warped.release()
-                    card to bmp
-                }
-                if (cardPairs.size == 3) {
-                    historyPersistence.saveSet(cardPairs)
-                    Log.d("SetAnalyzer", "Saved new unique SET to history.")
-                }
-            } finally {
-                frame.release()
-            }
+            if (debugMode) candidatePoints.forEach { _allCandidates.add(it) }
         }
     }
 
@@ -204,33 +189,12 @@ class SetAnalyzer(
         
         scope.launch(Dispatchers.Default) {
             try {
-                val frame = lastFrameForId ?: return@launch
-                cards.forEach { tracked ->
-                    // Quad is in analysisFrame (scaled) coordinates
-                    val matOfPoint2f = MatOfPoint2f(*tracked.bounds.toTypedArray())
-                    val warped = unwarper.unwarp(frame, matOfPoint2f)
-                    
-                    val bmp = Bitmap.createBitmap(warped.cols(), warped.rows(), Bitmap.Config.ARGB_8888)
-                    org.opencv.android.Utils.matToBitmap(warped, bmp)
-                    
-                    val id = identifier.identifyCard(bmp)
-                    if (id != null) {
-                        tracker.updateIdentification(tracked.id, id)
-                    }
-                    
-                    // Debug: Save chip to file (throttle to avoid perf issues)
-                    if (System.currentTimeMillis() % 20 == 0L) {
-                        val debugFile = java.io.File(context.cacheDir, "debug_chip.jpg")
-                        try {
-                            java.io.FileOutputStream(debugFile).use { out ->
-                                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
-                            }
-                            Log.d("SetAnalyzer", "Saved debug chip to: ${debugFile.absolutePath}")
-                        } catch (e: Exception) {
-                            Log.e("SetAnalyzer", "Failed to save debug chip", e)
-                        }
-                    }
-                    warped.release()
+                val fullFrame = lastFrameForId ?: return@launch
+                val quads = cards.map { it.bounds }
+                val results = detector.identifyQuads(fullFrame, quads, lastScaleForId)
+                
+                results.forEachIndexed { index, result ->
+                    tracker.updateIdentification(cards[index].id, result)
                 }
             } finally {
                 isIdentifying.set(false)
@@ -238,33 +202,41 @@ class SetAnalyzer(
         }
     }
 
+    private fun captureAndSaveSet(set: List<TrackedCard>, frame: Mat, scale: Double) {
+        scope.launch(Dispatchers.Default) {
+            try {
+                val quads = set.map { it.bounds }
+                detector.identifyQuads(frame, quads, scale)
+            } finally {
+                frame.release()
+            }
+        }
+    }
+
     private fun ImageProxy.toMat(): Mat {
-        val bitmap = toBitmap()
-        val mat = Mat()
+        val bitmap = this.toBitmap()
+        val mat = frameProcessor.createMat()
         org.opencv.android.Utils.bitmapToMat(bitmap, mat)
-        Imgproc.cvtColor(mat, mat, Imgproc.COLOR_RGBA2RGB)
-        return mat
+        val rgb = frameProcessor.createMat()
+        Imgproc.cvtColor(mat, rgb, Imgproc.COLOR_RGBA2RGB)
+        mat.release()
+        return rgb
     }
 
     private fun ImageProxy.toBitmap(): Bitmap {
-        val yBuffer = planes[0].buffer
-        val uBuffer = planes[1].buffer
-        val vBuffer = planes[2].buffer
-
-        val ySize = yBuffer.remaining()
-        val uSize = uBuffer.remaining()
-        val vSize = vBuffer.remaining()
-
-        val nv21 = ByteArray(ySize + uSize + vSize)
-
-        yBuffer.get(nv21, 0, ySize)
-        vBuffer.get(nv21, ySize, vSize)
-        uBuffer.get(nv21, ySize + vSize, uSize)
-
+        val nv21 = nv21(planes[0].buffer, planes[1].buffer, planes[2].buffer)
         val yuvImage = android.graphics.YuvImage(nv21, android.graphics.ImageFormat.NV21, width, height, null)
         val out = java.io.ByteArrayOutputStream()
         yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 100, out)
         val imageBytes = out.toByteArray()
         return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+    }
+
+    private fun nv21(y: ByteBuffer, u: ByteBuffer, v: ByteBuffer): ByteArray {
+        val nv21 = ByteArray(y.remaining() + u.remaining() + v.remaining())
+        y.get(nv21, 0, y.remaining())
+        v.get(nv21, y.remaining(), v.remaining())
+        u.get(nv21, y.remaining() + v.remaining(), u.remaining())
+        return nv21
     }
 }

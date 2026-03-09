@@ -4,9 +4,9 @@ import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
 
 /**
- * Aligned with chip_extractor.py logic for corner sorting, dimensions, and white balance.
+ * Aligned with chip_extractor.py logic for corner sorting and dimensions.
  */
-class CardUnwarper {
+open class CardUnwarper {
     companion object {
         const val TARGET_WIDTH = 144.0
         const val TARGET_HEIGHT = 224.0
@@ -36,51 +36,21 @@ class CardUnwarper {
         val trans = Imgproc.getPerspectiveTransform(src, dst)
         Imgproc.warpPerspective(frame, result, trans, Size(TARGET_WIDTH, TARGET_HEIGHT))
         
-        return applyWhiteBalance(result)
-    }
-
-    /**
-     * LAB-based white balance identical to chip_extractor.py.
-     * Centers 'a' and 'b' channels around 128.
-     */
-    private fun applyWhiteBalance(img: Mat): Mat {
-        val lab = Mat()
-        Imgproc.cvtColor(img, lab, Imgproc.COLOR_RGB2Lab)
+        // Cleanup
+        trans.release(); src.release(); dst.release()
         
-        val channels = mutableListOf<Mat>()
-        Core.split(lab, channels)
-        
-        val l = channels[0]
-        val a = channels[1]
-        val b = channels[2]
-        
-        val aMean = Core.mean(a).`val`[0]
-        val bMean = Core.mean(b).`val`[0]
-        
-        Core.add(a, Scalar(128.0 - aMean), a)
-        Core.add(b, Scalar(128.0 - bMean), b)
-        
-        val balanced = Mat()
-        Core.merge(channels, balanced)
-        
-        val result = Mat()
-        Imgproc.cvtColor(balanced, result, Imgproc.COLOR_Lab2RGB)
         return result
     }
 
-    /**
-     * Identical logic to Python rectify(pts):
-     * np.diff(pts, axis=1) is (y - x).
-     */
     private fun rectify(pts: Array<Point>): Array<Point> {
         val sorted = Array(4) { Point() }
         val sums = pts.map { it.x + it.y }
-        val diffs = pts.map { it.y - it.x } // Python np.diff(pts, axis=1) is y-x
+        val diffs = pts.map { it.y - it.x }
         
         sorted[0] = pts[sums.indexOf(sums.minOrNull())] // Top-left
         sorted[2] = pts[sums.indexOf(sums.maxOrNull())] // Bottom-right
-        sorted[1] = pts[diffs.indexOf(diffs.minOrNull())] // Top-right (min y-x)
-        sorted[3] = pts[diffs.indexOf(diffs.maxOrNull())] // Bottom-left (max y-x)
+        sorted[1] = pts[diffs.indexOf(diffs.minOrNull())] // Top-right
+        sorted[3] = pts[diffs.indexOf(diffs.maxOrNull())] // Bottom-left
         
         return sorted
     }

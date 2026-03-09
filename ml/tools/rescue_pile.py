@@ -25,6 +25,7 @@ def load_and_preprocess_image(path):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--source", required=True, help="Path to unlabelled chips directory")
     parser.add_argument("--filter_model", required=True, help="Path to the .keras card filter model")
     parser.add_argument("--expert_model", required=True, help="Path to the .keras attribute expert model")
     parser.add_argument("--predictions", default="set-finder/ml/predictions")
@@ -34,14 +35,13 @@ def main():
     m_filter = models.load_model(args.filter_model)
     m_expert = models.load_model(args.expert_model)
     
-    PRED_ROOT = Path(args.predictions)
-    ZERO_PILE = PRED_ROOT / "ZERO" / "NONE" / "NONE" / "NONE"
-    
-    if not ZERO_PILE.exists():
-        print(f"Pile {ZERO_PILE} not found.")
+    SOURCE_DIR = Path(args.source)
+    if not SOURCE_DIR.exists():
+        print(f"Source {SOURCE_DIR} not found.")
         return
 
-    pile = list(ZERO_PILE.glob("*.jpg"))
+    pile = list(SOURCE_DIR.glob("*.jpg"))
+    PRED_ROOT = Path(args.predictions)
     print(f"Analyzing {len(pile)} images in ZERO pile...")
     
     rescued = 0

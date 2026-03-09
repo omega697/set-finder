@@ -1,41 +1,36 @@
 # Set Finder - Project Status & TODO (March 8, 2026)
 
 ## 🛑 Current Blockers
-- **None:** UI Scaling/Offset and Overlapping bugs fixed.
+- **Identification Accuracy:** Reverted to v12 models, but pattern identification is failing (e.g., SHADED seen as EMPTY).
+- **Output Mapping:** TFLite models have generic output names (`StatefulPartitionedCall_1:0-3`), making manual mapping fragile.
+
+## 🛠️ Refactoring & Modularity (NEW)
+- **`SetDetector` Component:** Extracted stateless CV/ML logic from `SetAnalyzer` for isolated testing.
+- **`FrameProcessor` Interface:** Abstracted OpenCV calls (`resize`, `rotate`) to allow Robolectric JVM testing without native libraries.
+- **Dependency Injection:** `SetAnalyzer` now takes mocks, enabling 100% JVM verification of orchestration logic.
+- **Bug Fixes:**
+    - Fixed infinite recursion in `ImageProxy.toMat()`.
+    - Fixed parameter order bug in `Utils.bitmapToMat`.
+    - Restored critical coordinate scaling: Detection (1000px) -> Unwarping (Full-Res).
+
+## 📋 Verified Components
+- [x] **`CardUnwarper`:** Confirmed to produce 144x224 RGB chips with healthy brightness (~130.0).
+- [x] **`SetSolver`:** Verified set-solving logic via Robolectric unit tests.
+- [x] **`SetAnalyzer` (Orchestration):** Verified high-level logic (detect -> track -> solve) via Robolectric.
 
 ## 🚀 Model Status
-- **v13 Training:** In progress (Background PID 2768608). 
-    - *Progress:* Card Filter Epoch 1/5. 
-    - *Fix:* Resolved multi-output metric mismatch in `train.py`.
-- **v12 Alignment:**
-    - **TFLite Mapping:** Fixed v12 indices (Col=0, Shp=1, Cnt=2, Pat=3).
-    - **CardFinder Alignment:** Removed aspect-ratio filter to match `chip_extractor.py`.
-
-## 🛠️ Implemented Features
-- **Scanner UI Overhaul:**
-    - Controls moved to bottom (Buttons + Sensitivity Slider).
-    - Camera view moved to top with `FIT_CENTER` scaling.
-    - Added Label Visibility toggle.
-    - Added App Icon Logo to Welcome Screen.
-- **Persistence & History:**
-    - `SettingsManager`: Persisted highlight colors, sensitivity, and label settings.
-    - `HistoryPersistence`: Saved unique found sets with card images (latest 50).
-    - `HistoryScreen`: New screen to browse found sets.
-- **UI/Theme Improvements:**
-    - Full Dark Mode support with refined color palettes.
-    - Material 2 theme alignment across all screens.
-    - Drag-and-drop reordering for highlight colors in Settings.
-- **CV Refinement:**
-    - Relaxed max area constraint in `CardFinder` to 80% of frame for close-ups.
-    - Fixed overlapping card detections using IoU and containment checks.
+- **v12 Revert:** Currently active, but accuracy is poor (1/3 sets found in integration test).
+- **v13 Expert:** Highly accurate in Python, but failing in Android due to mapping/preprocessing nuances.
+- **Preprocessing Findings:**
+    - `chip_extractor.py` uses BGR for white balance.
+    - Android uses RGB for everything else; parity requires careful conversion steps.
 
 ## 📋 Next Steps
-1.  **Verify Pipeline:** Run `PipelineAlignmentTest` to confirm `FIT_CENTER` mapping and detection accuracy.
-2.  **v13 Deployment:** Once v13 training finishes, convert to TFLite and verify dynamic name-based mapping in Android.
-3.  **UI Testing:** Verify drag-and-drop reordering on device and ensure history saving doesn't impact FPS.
+1.  **Definitive v12 Mapping:** Fix the SHADED vs EMPTY swap by logging raw indices for all 19 test chips.
+2.  **Restore Integration Pass:** Get `SetDetectorTest` (instrumentation) passing 3/3 sets on v12.
+3.  **v13 Re-Integration:** Once v12 is stable, re-apply v13 expert model with verified BGR white-balance steps.
+4.  **Named TFLite Outputs:** (Critical) Update training script to force consistent output names to stop the "index mapping" circle.
 
 ## 🗺️ Future Roadmap
-- **Full-Featured Web App for ML Pipeline:**
-    - Expand `labeler.py` into a comprehensive end-to-end dashboard.
-    - Features: Video upload, chip extraction, manual/bulk labeling, bootstrapping, card rescue, training (Keras), and TFLite conversion.
-    - Goal: Allow a non-technical user to manage the entire ML lifecycle from a browser.
+- **ML Lifecycle Dashboard:** Web-based interface for video upload, labeling, bootstrapping, training, and conversion.
+- **Set Statistics:** Track most frequent cards/sets in history.

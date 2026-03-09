@@ -30,10 +30,29 @@ python tools/fetch_external_data.py
 This script downloads ~1,000 images, maps them to our naming convention, and saves them with an `ext_` prefix. These files are automatically ignored by Git.
 
 ### Labeling New Data
-Use the custom UI to label chips extracted from your own camera frames:
-```bash
-python tools/labeler.py
-```
+If you have new photos or videos of cards, follow this workflow:
+
+1.  **Extract Chips:**
+    Use the extractor to find quads in raw videos and save them as warped 144x224 chips.
+    ```bash
+    # Extract from a video file
+    # --input: path to video
+    # --output: target directory (defaults to 'chips')
+    # --interval: process one frame every N frames (defaults to 500)
+    python tools/chip_extractor.py --input raw_data/video.mp4 --output raw_data/chips/ --interval 100
+    ```
+
+2.  **Label Chips:**
+    Launch the custom UI to sort chips into the `dataset/` directory.
+    ```bash
+    python tools/labeler.py
+    ```
+
+3.  **Bootstrapping (Optional):**
+    If you already have a trained model, you can "rescue" unlabelled chips by moving them to the `predictions/` directory based on model traits for faster verification:
+    ```bash
+    python tools/rescue_pile.py --source raw_data/chips/ --filter_model card_filter_v13.keras --expert_model attribute_expert_v13.keras --predictions predictions/
+    ```
 
 ## 🚀 Training Pipeline
 

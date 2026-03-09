@@ -27,48 +27,80 @@ def load_and_preprocess_image(path):
     return img
 
 def prepare_datasets(dataset_root, oversample_factor):
-    DATASET_ROOT = Path(dataset_root)
+    # Ensure absolute path for robustness
+    DATASET_ROOT = Path(dataset_root).resolve()
+    print(f"Loading data from {DATASET_ROOT}...")
     all_files = list(DATASET_ROOT.rglob("*.jpg"))
     
     ok_files = [f for f in all_files if f.name.startswith("ok_")]
-    ext_files = [f for f in all_files if not f.name.startswith("ok_")]
+    ext_files = [f for f in all_files if f.name.startswith("ext_")]
     
-    print(f"Found {len(ok_files)} verified files and {len(ext_files)} bootstrapped files.")
+    print(f"Found {len(ok_files)} verified files and {len(ext_files)} external files.")
     
-    # Combined paths for oversampling
+    # Combined paths: Oversample verified data so it's not drowned out by external
     all_paths = ext_files + (ok_files * oversample_factor)
+    all_paths = [str(p) for p in all_paths] # Ensure strings
     np.random.shuffle(all_paths)
     
     # Dataset 1: Card Filter (Binary)
     paths1 = []; labels1 = []
-    for p in all_paths:
+    for p_str in all_paths:
+        p = Path(p_str)
         rel = p.relative_to(DATASET_ROOT).parts
         if len(rel) < 2: continue
-        paths1.append(str(p))
+        paths1.append(p_str)
         labels1.append(0 if rel[0] == "ZERO" else 1)
         
-    ds1 = tf.data.Dataset.from_tensor_slices((paths1, labels1))
-    ds1 = ds1.map(lambda x, y: (load_and_preprocess_image(x), y), num_parallel_calls=tf.data.AUTOTUNE)
+    def gen1():
+        for p, l in zip(paths1, labels1):
+            yield p, l
+
+    ds1 = tf.data.Dataset.from_generator(
+        gen1, 
+        output_signature=(
+            tf.TensorSpec(shape=(), dtype=tf.string),
+            tf.TensorSpec(shape=(), dtype=tf.int32)
+        )
+    )
+    ds1 = ds1.map(lambda p, l: (load_and_preprocess_image(p), l), num_parallel_calls=tf.data.AUTOTUNE)
     ds1 = ds1.shuffle(2000).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
     
     # Dataset 2: Attribute Expert (Multi-output, Cards Only)
     paths2 = []; l_count = []; l_color = []; l_pattern = []; l_shape = []
-    for p in all_paths:
+    for p_str in all_paths:
+        p = Path(p_str)
         rel = p.relative_to(DATASET_ROOT).parts
         if len(rel) < 4 or rel[0] == "ZERO": continue
         
-        paths2.append(str(p))
+        paths2.append(p_str)
         l_count.append(MAPS['count'][rel[0]])
         l_color.append(MAPS['color'][rel[1]])
         l_pattern.append(MAPS['pattern'][rel[2]])
         l_shape.append(MAPS['shape'][rel[3]])
         
-    img_ds2 = tf.data.Dataset.from_tensor_slices(paths2).map(load_and_preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
-    lbl_ds2 = tf.data.Dataset.from_tensor_slices({
-        'count_out': l_count, 'color_out': l_color, 
-        'pattern_out': l_pattern, 'shape_out': l_shape
-    })
-    ds2 = tf.data.Dataset.zip((img_ds2, lbl_ds2)).shuffle(2000).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+    def gen2():
+        for i in range(len(paths2)):
+            yield paths2[i], {
+                'count_out': l_count[i],
+                'color_out': l_color[i],
+                'pattern_out': l_pattern[i],
+                'shape_out': l_shape[i]
+            }
+
+    ds2 = tf.data.Dataset.from_generator(
+        gen2,
+        output_signature=(
+            tf.TensorSpec(shape=(), dtype=tf.string),
+            {
+                'count_out': tf.TensorSpec(shape=(), dtype=tf.int32),
+                'color_out': tf.TensorSpec(shape=(), dtype=tf.int32),
+                'pattern_out': tf.TensorSpec(shape=(), dtype=tf.int32),
+                'shape_out': tf.TensorSpec(shape=(), dtype=tf.int32)
+            }
+        )
+    )
+    ds2 = ds2.map(lambda p, l: (load_and_preprocess_image(p), l), num_parallel_calls=tf.data.AUTOTUNE)
+    ds2 = ds2.shuffle(2000).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
     
     return ds1, ds2
 
@@ -156,24 +188,24 @@ def rescue_pile(m_filter, m_expert, predictions_root):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", default="set-finder/ml/dataset")
-    parser.add_argument("--predictions", default="set-finder/ml/predictions")
-    parser.add_argument("--filter_model", default="set-finder/ml/card_filter_latest.keras")
-    parser.add_argument("--expert_model", default="set-finder/ml/attribute_expert_latest.keras")
-    parser.add_argument("--epochs", type=int, default=10)
+    # Default to 'dataset' directory sibling to 'tools'
+    default_dataset = Path(__file__).parent.parent / "dataset"
+    parser.add_argument("--dataset", default=str(default_dataset))
+    parser.add_argument("--predictions", default="predictions")
+    parser.add_argument("--filter_model", default="card_filter_latest.keras")
+    parser.add_argument("--expert_model", default="attribute_expert_latest.keras")
+    parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--oversample", type=int, default=4)
     args = parser.parse_args()
 
     print(f"Preparing datasets with {args.oversample}x oversampling...")
     ds_filter, ds_expert = prepare_datasets(args.dataset, args.oversample)
-    
-    # 1. Card Filter
+
     print("\n--- Training Card Filter ---")
     m_f = build_model('filter')
-    m_f.fit(ds_filter, epochs=5)
+    m_f.fit(ds_filter, epochs=args.epochs)
     m_f.save(args.filter_model)
-    
-    # 2. Attribute Expert
+
     print("\n--- Training Attribute Expert ---")
     m_e = build_model('expert')
     m_e.fit(ds_expert, epochs=args.epochs)

@@ -27,14 +27,19 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11"
     }
     buildFeatures {
         compose = true
+    }
+    sourceSets {
+        getByName("androidTest") {
+            assets.srcDirs("src/androidTest/assets")
+        }
     }
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.compose.compiler.get()
@@ -59,10 +64,16 @@ dependencies {
     implementation(libs.tensorflow.lite)
     implementation(libs.tensorflow.lite.support)
     implementation(libs.gson)
+    implementation(libs.arcore)
+    implementation(libs.sceneview)
+
     testImplementation(libs.junit)
+
     testImplementation(libs.truth)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+    testImplementation(libs.mockito.core)
+    testImplementation(libs.mockito.kotlin)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.truth)
     androidTestImplementation(libs.androidx.test.ext.junit)

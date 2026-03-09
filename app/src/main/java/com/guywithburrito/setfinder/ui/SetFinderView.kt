@@ -135,7 +135,7 @@ fun SetFinderView(
                 // Tracked Cards
                 setAnalyzer.detectedRects.forEach { card ->
                     if (showDebug || card.card != null) {
-                        val points = card.bounds
+                        val points = if (showDebug) card.bounds else card.smoothedBounds
                         for (i in 0 until points.size) {
                             drawLine(
                                 color = if (showDebug) Color.Yellow else Color.White.copy(alpha = 0.5f),
@@ -145,13 +145,21 @@ fun SetFinderView(
                             )
                         }
 
-                        if (showLabels) {
-                            val center = card.getCenter().toOffset()
-                            card.card?.let { identified ->
-                                drawContext.canvas.nativeCanvas.drawText("${identified.count} ${identified.color}", center.x - 60f, center.y, textPaint)
-                                drawContext.canvas.nativeCanvas.drawText("${identified.pattern} ${identified.shape}", center.x - 60f, center.y + 40f, textPaint)
-                            }
+                    if (showLabels || showDebug) {
+                        // Use center of the points we are actually drawing
+                        var sumX = 0.0; var sumY = 0.0
+                        points.forEach { sumX += it.x; sumY += it.y }
+                        val center = Offset((sumX.toFloat() / points.size * scale) + offsetX, (sumY.toFloat() / points.size * scale) + offsetY)
+                        
+                        card.card?.let { identified ->
+                            drawContext.canvas.nativeCanvas.drawText("${identified.count} ${identified.color}", center.x - 60f, center.y, textPaint)
+                            drawContext.canvas.nativeCanvas.drawText("${identified.pattern} ${identified.shape}", center.x - 60f, center.y + 40f, textPaint)
                         }
+                        
+                        if (showDebug) {
+                            drawContext.canvas.nativeCanvas.drawText("thrash: %.2f".format(card.thrashScore), center.x - 60f, center.y - 40f, textPaint)
+                        }
+                    }
                     }
                 }
 
@@ -160,8 +168,15 @@ fun SetFinderView(
                     val colors = settingsManager.highlightColors.map { it.second }
                     val color = if (colors.isNotEmpty()) colors[idx % colors.size] else Color.Green
                     set.forEach { card ->
-                        for (i in 0 until card.bounds.size) {
-                            drawLine(color = color, start = card.bounds[i].toOffset(), end = card.bounds[(i+1)%4].toOffset(), strokeWidth = 8f)
+                        // Use smoothed bounds for the SET highlight lines as well
+                        val setPoints = if (showDebug) card.bounds else card.smoothedBounds
+                        for (i in 0 until setPoints.size) {
+                            drawLine(
+                                color = color, 
+                                start = setPoints[i].toOffset(), 
+                                end = setPoints[(i+1)%setPoints.size].toOffset(), 
+                                strokeWidth = 8f
+                            )
                         }
                     }
                 }

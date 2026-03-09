@@ -8,6 +8,8 @@ import com.google.common.truth.Truth.assertThat
 import com.guywithburrito.setfinder.cv.CardFinder
 import com.guywithburrito.setfinder.cv.CardUnwarper
 import com.guywithburrito.setfinder.ml.TFLiteCardIdentifier
+import com.guywithburrito.setfinder.ml.*
+import com.guywithburrito.setfinder.cv.OpenCVWhiteBalancer
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,7 +52,7 @@ class PipelineAlignmentTest {
 
     @Test
     fun stage2_Unwarp_ProducesCorrectDimensions() {
-        val mat = loadFullFrame("card_1_green_striped_diamond.jpg")
+        val mat = loadFullFrame("card_1_green_shaded_diamond.jpg")
         val finder = CardFinder()
         val unwarper = CardUnwarper()
         

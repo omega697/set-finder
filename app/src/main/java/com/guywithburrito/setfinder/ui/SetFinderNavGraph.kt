@@ -3,6 +3,7 @@ package com.guywithburrito.setfinder.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -48,13 +49,22 @@ fun ScannerScreen(
     onSettingsClicked: () -> Unit,
     onHistoryClicked: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val settingsManager = remember { com.guywithburrito.setfinder.tracking.SettingsManager(context) }
     val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
     
     if (cameraPermissionState.status.isGranted) {
-        SetFinderView(
-            onSettingsClicked = onSettingsClicked,
-            onHistoryClicked = onHistoryClicked
-        )
+        if (settingsManager.arMode) {
+            ARSetFinderView(
+                onSettingsClicked = onSettingsClicked,
+                onHistoryClicked = onHistoryClicked
+            )
+        } else {
+            SetFinderView(
+                onSettingsClicked = onSettingsClicked,
+                onHistoryClicked = onHistoryClicked
+            )
+        }
     } else {
         Column(
             modifier = Modifier.fillMaxSize().padding(32.dp),

@@ -18,8 +18,14 @@ opencv = "4.5.3.0"
 tensorflow-lite = "2.14.0"
 gson = "2.10.1"
 robolectric = "4.11.1"
+mockito = "5.11.0"
+mockito-kotlin = "5.2.1"
+arcore = "1.41.0"
+sceneview = "2.2.1"
 
 [libraries]
+arcore = { module = "com.google.ar:core", version.ref = "arcore" }
+sceneview = { module = "io.github.sceneview:arsceneview", version.ref = "sceneview" }
 camera_camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
 camera_core = { module = "androidx.camera:camera-core", version.ref = "camerax" }
 camera_lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
@@ -48,6 +54,8 @@ tensorflow-lite = { module = "org.tensorflow:tensorflow-lite", version.ref = "te
 tensorflow-lite-support = { module = "org.tensorflow:tensorflow-lite-support", version = "0.4.4" }
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
+mockito-kotlin = { module = "org.mockito.kotlin:mockito-kotlin", version.ref = "mockito-kotlin" }
 
 junit = { module = "junit:junit", version.ref = "junit" }
 

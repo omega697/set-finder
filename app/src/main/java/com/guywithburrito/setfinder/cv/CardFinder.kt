@@ -7,7 +7,7 @@ import org.opencv.imgproc.Imgproc
 /**
  * Robust CardFinder aligned with training data, but tuned for Android real-time.
  */
-class CardFinder(private val settingsManager: com.guywithburrito.setfinder.tracking.SettingsManager? = null) {
+open class CardFinder(private val settingsManager: com.guywithburrito.setfinder.tracking.SettingsManager? = null) {
 
     fun findCandidates(mat: Mat): List<MatOfPoint2f> {
         val gray = Mat()
