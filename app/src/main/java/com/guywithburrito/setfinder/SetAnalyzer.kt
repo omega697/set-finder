@@ -9,15 +9,10 @@ import androidx.camera.core.ImageProxy
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.guywithburrito.setfinder.cv.CardFinder
-import com.guywithburrito.setfinder.cv.CardUnwarper
+import com.guywithburrito.setfinder.cv.ChipExtractor
 import com.guywithburrito.setfinder.cv.FrameProcessor
 import com.guywithburrito.setfinder.cv.OpenCVFrameProcessor
-import com.guywithburrito.setfinder.cv.OpenCVWhiteBalancer
 import com.guywithburrito.setfinder.ml.CardIdentifier
-import com.guywithburrito.setfinder.ml.TFLiteCardIdentifier
-import com.guywithburrito.setfinder.ml.TFLiteCardFilterModel
-import com.guywithburrito.setfinder.ml.TFLiteExpertModel
-import com.guywithburrito.setfinder.ml.CardModelMapper
 import com.guywithburrito.setfinder.tracking.CardTracker
 import com.guywithburrito.setfinder.tracking.TrackedCard
 import com.guywithburrito.setfinder.tracking.HistoryPersistence
@@ -25,7 +20,9 @@ import com.guywithburrito.setfinder.tracking.SettingsManager
 import com.guywithburrito.setfinder.card.SetCard
 import com.guywithburrito.setfinder.card.SetSolver
 import com.guywithburrito.setfinder.card.DefaultSetSolver
-import org.opencv.core.*
+import org.opencv.core.Mat
+import org.opencv.core.Point
+import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import java.nio.ByteBuffer
 import androidx.compose.runtime.mutableStateOf
@@ -42,13 +39,9 @@ class SetAnalyzer(
     private val tracker: CardTracker = CardTracker(),
     private val solver: SetSolver = DefaultSetSolver(),
     private val frameProcessor: FrameProcessor = OpenCVFrameProcessor(),
-    private val identifier: CardIdentifier = TFLiteCardIdentifier(
-        TFLiteCardFilterModel(context),
-        TFLiteExpertModel(context),
-        CardModelMapper.V12,
-        OpenCVWhiteBalancer()
-    ),
-    private val detector: SetDetector = SetDetector(finder, CardUnwarper(), identifier, frameProcessor)
+    private val identifier: CardIdentifier = CardIdentifier.getInstance(context),
+    private val extractor: ChipExtractor = ChipExtractor(),
+    private val detector: SetDetector = SetDetector(finder, extractor, identifier, frameProcessor)
 ) : ImageAnalysis.Analyzer {
     private val historyPersistence = HistoryPersistence(context)
     private val seenSetsInSession = mutableSetOf<Set<SetCard>>()
@@ -98,7 +91,7 @@ class SetAnalyzer(
                 frameProcessor.yuvToRgb(yuvMat, frameMat)
                 
                 val portraitMat = frameProcessor.createMat()
-                frameProcessor.rotate(frameMat, portraitMat, Core.ROTATE_90_CLOCKWISE)
+                frameProcessor.rotate(frameMat, portraitMat, FrameProcessor.ROTATE_90_CLOCKWISE)
                 
                 analyzeMat(portraitMat)
                 
@@ -115,9 +108,9 @@ class SetAnalyzer(
         val rotationDegrees = image.imageInfo.rotationDegrees
         val rotatedFrame = frameProcessor.createMat()
         when (rotationDegrees) {
-            90 -> frameProcessor.rotate(frame, rotatedFrame, Core.ROTATE_90_CLOCKWISE)
-            180 -> frameProcessor.rotate(frame, rotatedFrame, Core.ROTATE_180)
-            270 -> frameProcessor.rotate(frame, rotatedFrame, Core.ROTATE_90_COUNTERCLOCKWISE)
+            90 -> frameProcessor.rotate(frame, rotatedFrame, FrameProcessor.ROTATE_90_CLOCKWISE)
+            180 -> frameProcessor.rotate(frame, rotatedFrame, FrameProcessor.ROTATE_180)
+            270 -> frameProcessor.rotate(frame, rotatedFrame, FrameProcessor.ROTATE_90_COUNTERCLOCKWISE)
             else -> frame.copyTo(rotatedFrame)
         }
         

@@ -3,20 +3,22 @@ package com.guywithburrito.setfinder
 import android.graphics.Bitmap
 import com.guywithburrito.setfinder.card.SetCard
 import com.guywithburrito.setfinder.cv.CardFinder
-import com.guywithburrito.setfinder.cv.CardUnwarper
+import com.guywithburrito.setfinder.cv.ChipExtractor
 import com.guywithburrito.setfinder.cv.FrameProcessor
 import com.guywithburrito.setfinder.cv.OpenCVFrameProcessor
 import com.guywithburrito.setfinder.ml.CardIdentifier
-import com.guywithburrito.setfinder.ml.TFLiteCardIdentifier
-import org.opencv.android.Utils
-import org.opencv.core.*
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint2f
+import org.opencv.core.Point
+import org.opencv.core.Size
 
 /**
  * Pure CV/ML pipeline extracted from SetAnalyzer for testability and modularity.
+ * Orchestrates Stage 1 (Extraction), Stage 2 (Filtering), and Stage 3 (Identification).
  */
 class SetDetector(
     private val finder: CardFinder,
-    private val unwarper: CardUnwarper,
+    private val extractor: ChipExtractor,
     private val identifier: CardIdentifier,
     private val frameProcessor: FrameProcessor = OpenCVFrameProcessor()
 ) {
@@ -34,10 +36,9 @@ class SetDetector(
         
         // 1. Detect
         val quads = finder.findLikelyCards(analysisFrame)
-        val quadPoints = quads.map { it.toList() }
         
-        // 2. Identify
-        val identified = identifyQuads(frame, quadPoints, scale).filterNotNull()
+        // 2. Identify (using Stage 1 Extractor and Stages 2/3 Identifier)
+        val identified = identifyQuads(frame, quads.map { it.toList() }, scale).filterNotNull()
         
         // 3. Solve
         val sets = findSets(identified)
@@ -48,21 +49,18 @@ class SetDetector(
 
     /**
      * Identifies a list of quads found in a frame.
-     * Quads are provided as List<Point> to avoid native MatOfPoint2f in caller.
      */
     fun identifyQuads(frame: Mat, quadPoints: List<List<Point>>, scale: Double): List<SetCard?> {
         return quadPoints.map { pointsInAnalysisSpace ->
-            // Transform coordinates back to full resolution
+            // Stage 1: Chip Extraction
             val corners = pointsInAnalysisSpace.map { p -> Point(p.x / scale, p.y / scale) }
             val fullResQuad = frameProcessor.createMatOfPoint2f(corners)
             
-            val warped = unwarper.unwarp(frame, fullResQuad)
-            val bmp = Bitmap.createBitmap(warped.cols(), warped.rows(), Bitmap.Config.ARGB_8888)
-            Utils.matToBitmap(warped, bmp)
+            val chip = extractor.extract(frame, fullResQuad)
             
-            val result = identifier.identifyCard(bmp)
+            // Stage 2 & 3: Filter & Identify
+            val result = identifier.identifyCard(chip)
             
-            warped.release()
             fullResQuad.release()
             result
         }

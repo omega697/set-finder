@@ -13,6 +13,13 @@ interface FrameProcessor {
     fun rotate(src: Mat, dst: Mat, rotationCode: Int)
     fun yuvToRgb(yuv: Mat, rgb: Mat)
     fun argmax(scores: FloatArray): Int
+
+    companion object {
+        // Mirrored from org.opencv.core.Core to avoid static native dependencies in callers
+        const val ROTATE_90_CLOCKWISE = 0
+        const val ROTATE_180 = 1
+        const val ROTATE_90_COUNTERCLOCKWISE = 2
+    }
 }
 
 class OpenCVFrameProcessor : FrameProcessor {

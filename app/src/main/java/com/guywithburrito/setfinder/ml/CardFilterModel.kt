@@ -26,6 +26,11 @@ class TFLiteCardFilterModel(
 ) : CardFilterModel {
     private val interpreter: Interpreter = Interpreter(FileUtil.loadMappedFile(context, modelPath))
 
+    init {
+        val input = interpreter.getInputTensor(0)
+        android.util.Log.d("CardFilterModel", "Model expected input: shape=${input.shape().contentToString()}, type=${input.dataType()}")
+    }
+
     override fun getConfidence(buffer: ByteBuffer): Float {
         buffer.rewind()
         val output = Array(1) { FloatArray(1) }

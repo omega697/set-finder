@@ -1,79 +1,53 @@
 package com.guywithburrito.setfinder.ml
 
+import android.content.Context
 import android.graphics.Bitmap
 import com.guywithburrito.setfinder.card.SetCard
-import com.guywithburrito.setfinder.cv.WhiteBalancer
-import org.opencv.android.Utils
-import org.opencv.core.Mat
-import org.tensorflow.lite.support.image.ImageProcessor
-import org.tensorflow.lite.support.image.TensorImage
-import org.tensorflow.lite.support.image.ops.ResizeOp
-import org.tensorflow.lite.support.common.ops.NormalizeOp
 
 /**
  * High-level interface for identifying a card from a pre-extracted chip.
+ * Orchestrates Stage 2 (Filtering) and Stage 3 (Identification).
  */
 interface CardIdentifier {
+    /**
+     * Returns an identified SetCard, or null if it's not a card or confidence is too low.
+     */
     fun identifyCard(chip: Bitmap): SetCard?
+    
     fun close()
+
+    companion object {
+        /**
+         * Factory method to get the default modular TFLite implementation.
+         */
+        fun getInstance(context: Context): CardIdentifier {
+            val filter = CardFilter.getInstance(context)
+            val expert = CardExpert.getInstance(context)
+            return TFLiteCardIdentifier(filter, expert)
+        }
+    }
 }
 
 /**
- * TFLite-based implementation that orchestrates preprocessing, 
- * expert model execution, and attribute mapping.
+ * Orchestrator that delegates to CardFilter and CardExpert.
  */
 class TFLiteCardIdentifier(
-    private val filterModel: CardFilterModel,
-    private val expertModel: CardExpertModel,
-    private val mapper: CardModelMapper,
-    private val whiteBalancer: WhiteBalancer
+    private val filter: CardFilter,
+    private val expert: CardExpert
 ) : CardIdentifier {
 
-    private val imageProcessor = ImageProcessor.Builder()
-        .add(ResizeOp(224, 224, ResizeOp.ResizeMethod.BILINEAR))
-        .add(NormalizeOp(127.5f, 127.5f))
-        .build()
-
     override fun identifyCard(chip: Bitmap): SetCard? {
-        // 1. Preprocess for TFLite
-        var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
-        tensorImage.load(chip)
-        tensorImage = imageProcessor.process(tensorImage)
-        val buffer = tensorImage.buffer
-
-        // 2. Filter (Is it a card?)
-        val confidence = filterModel.getConfidence(buffer)
-        if (confidence < 0.1f) return null
-
-        // 3. White Balance (Native Lab-based) - ONLY for actual cards
-        val mat = Mat()
-        Utils.bitmapToMat(chip, mat)
-        val balancedMat = whiteBalancer.balanceRGB(mat)
-        val balancedBmp = Bitmap.createBitmap(balancedMat.cols(), balancedMat.rows(), Bitmap.Config.ARGB_8888)
-        Utils.matToBitmap(balancedMat, balancedBmp)
+        // Stage 2: Filter
+        if (!filter.isCard(chip)) {
+            return null
+        }
         
-        // 4. Reprocess balanced image for Expert Model
-        var expertTensor = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
-        expertTensor.load(balancedBmp)
-        expertTensor = imageProcessor.process(expertTensor)
-        
-        // 5. Expert Model Inference
-        val predictions = expertModel.predict(expertTensor.buffer)
-        
-        // 6. Mapping
-        val colIdx = mapper.argmax(predictions[0]!!)
-        val shpIdx = mapper.argmax(predictions[1]!!)
-        val cntIdx = mapper.argmax(predictions[2]!!)
-        val patIdx = mapper.argmax(predictions[3]!!)
-        
-        // Cleanup native resources
-        mat.release(); balancedMat.release()
-        
-        return mapper.mapIndices(colIdx, shpIdx, cntIdx, patIdx)
+        // Stage 3: Expert Identification
+        return expert.identify(chip)
     }
 
     override fun close() {
-        filterModel.close()
-        expertModel.close()
+        filter.close()
+        expert.close()
     }
 }
