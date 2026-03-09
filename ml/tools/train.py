@@ -11,10 +11,10 @@ IMG_SIZE = (224, 224)
 BATCH_SIZE = 32
 
 MAPS = {
-    'count':   {'ZERO': 0, 'ONE': 1, 'TWO': 2, 'THREE': 3},
-    'color':   {'NONE': 0, 'RED': 1, 'GREEN': 2, 'PURPLE': 3},
-    'pattern': {'NONE': 0, 'SOLID': 1, 'SHADED': 2, 'EMPTY': 3},
-    'shape':   {'NONE': 0, 'OVAL': 1, 'DIAMOND': 2, 'SQUIGGLE': 3}
+    'count':   {'ONE': 1, 'TWO': 2, 'THREE': 3},
+    'color':   {'RED': 1, 'GREEN': 2, 'PURPLE': 3},
+    'pattern': {'SOLID': 1, 'SHADED': 2, 'EMPTY': 3},
+    'shape':   {'OVAL': 1, 'DIAMOND': 2, 'SQUIGGLE': 3}
 }
 
 REV_MAPS = {k: {v: k2 for k2, v in v.items()} for k, v in MAPS.items()}
@@ -27,32 +27,47 @@ def load_and_preprocess_image(path):
     return img
 
 def prepare_datasets(dataset_root, oversample_factor):
-    # Ensure absolute path for robustness
     DATASET_ROOT = Path(dataset_root).resolve()
     print(f"Loading data from {DATASET_ROOT}...")
-    all_files = list(DATASET_ROOT.rglob("*.jpg"))
     
-    ok_files = [f for f in all_files if f.name.startswith("ok_")]
-    ext_files = [f for f in all_files if f.name.startswith("ext_")]
+    # New Structure:
+    # ml/dataset/cards/COUNT/COLOR/PATTERN/SHAPE/*.jpg
+    # ml/dataset/non_cards/*.jpg
     
-    print(f"Found {len(ok_files)} verified files and {len(ext_files)} external files.")
+    card_files = list((DATASET_ROOT / "cards").rglob("*.jpg"))
+    non_card_files = list((DATASET_ROOT / "non_cards").rglob("*.jpg"))
     
-    # Combined paths: Oversample verified data so it's not drowned out by external
-    all_paths = ext_files + (ok_files * oversample_factor)
-    all_paths = [str(p) for p in all_paths] # Ensure strings
-    np.random.shuffle(all_paths)
+    print(f"Found {len(card_files)} card files and {len(non_card_files)} non-card files.")
     
-    # Dataset 1: Card Filter (Binary)
-    paths1 = []; labels1 = []
-    for p_str in all_paths:
-        p = Path(p_str)
-        rel = p.relative_to(DATASET_ROOT).parts
-        if len(rel) < 2: continue
-        paths1.append(p_str)
-        labels1.append(0 if rel[0] == "ZERO" else 1)
+    # 1. Dataset for Card Filter (Binary classification)
+    # We want a balanced dataset or at least enough of both.
+    # Oversample cards if they are verified.
+    
+    ok_cards = [f for f in card_files if f.name.startswith("ok_")]
+    ext_cards = [f for f in card_files if f.name.startswith("ext_")]
+    
+    print(f"  (Cards: {len(ok_cards)} verified, {len(ext_cards)} external)")
+    
+    balanced_cards = ext_cards + (ok_cards * oversample_factor)
+    
+    filter_paths = []
+    filter_labels = []
+    
+    for p in balanced_cards:
+        filter_paths.append(str(p))
+        filter_labels.append(1) # Is a card
         
+    for p in non_card_files:
+        filter_paths.append(str(p))
+        filter_labels.append(0) # Not a card
+        
+    # Shuffle for filter dataset
+    c = list(zip(filter_paths, filter_labels))
+    np.random.shuffle(c)
+    filter_paths, filter_labels = zip(*c)
+
     def gen1():
-        for p, l in zip(paths1, labels1):
+        for p, l in zip(filter_paths, filter_labels):
             yield p, l
 
     ds1 = tf.data.Dataset.from_generator(
@@ -65,22 +80,27 @@ def prepare_datasets(dataset_root, oversample_factor):
     ds1 = ds1.map(lambda p, l: (load_and_preprocess_image(p), l), num_parallel_calls=tf.data.AUTOTUNE)
     ds1 = ds1.shuffle(2000).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
     
-    # Dataset 2: Attribute Expert (Multi-output, Cards Only)
-    paths2 = []; l_count = []; l_color = []; l_pattern = []; l_shape = []
-    for p_str in all_paths:
-        p = Path(p_str)
-        rel = p.relative_to(DATASET_ROOT).parts
-        if len(rel) < 4 or rel[0] == "ZERO": continue
+    # 2. Dataset for Attribute Expert (Multi-output, Cards Only)
+    expert_paths = []
+    l_count = []; l_color = []; l_pattern = []; l_shape = []
+    
+    CARDS_ROOT = DATASET_ROOT / "cards"
+    
+    for p in balanced_cards:
+        rel = p.relative_to(CARDS_ROOT).parts
+        if len(rel) < 4: 
+            # Skip misorganized files that don't have all attributes
+            continue
         
-        paths2.append(p_str)
+        expert_paths.append(str(p))
         l_count.append(MAPS['count'][rel[0]])
         l_color.append(MAPS['color'][rel[1]])
         l_pattern.append(MAPS['pattern'][rel[2]])
         l_shape.append(MAPS['shape'][rel[3]])
         
     def gen2():
-        for i in range(len(paths2)):
-            yield paths2[i], {
+        for i in range(len(expert_paths)):
+            yield expert_paths[i], {
                 'count_out': l_count[i],
                 'color_out': l_color[i],
                 'pattern_out': l_pattern[i],
@@ -125,17 +145,19 @@ def build_model(output_type='filter'):
     else:
         x = layers.Dense(512, activation='relu')(x)
         
-        # Explicitly named output layers for TFLite robustness
-        # Order: Color, Count, Pattern, Shape (to match common logic)
+        # Color: NONE=0, RED=1, GREEN=2, PURPLE=3
         out_color = layers.Dense(4, name='color_logits')(x)
         out_color = layers.Activation('softmax', name='color_out')(out_color)
 
+        # Count: ZERO=0, ONE=1, TWO=2, THREE=3 (Note: ZERO still in MAPS index 0 for consistency if needed, but not used in cards/)
         out_count = layers.Dense(4, name='count_logits')(x)
         out_count = layers.Activation('softmax', name='count_out')(out_count)
         
+        # Pattern: NONE=0, SOLID=1, SHADED=2, EMPTY=3
         out_pattern = layers.Dense(4, name='pattern_logits')(x)
         out_pattern = layers.Activation('softmax', name='pattern_out')(out_pattern)
         
+        # Shape: NONE=0, OVAL=1, DIAMOND=2, SQUIGGLE=3
         out_shape = layers.Dense(4, name='shape_logits')(x)
         out_shape = layers.Activation('softmax', name='shape_out')(out_shape)
         
@@ -145,53 +167,10 @@ def build_model(output_type='filter'):
                       metrics={'color_out': 'accuracy', 'count_out': 'accuracy', 'pattern_out': 'accuracy', 'shape_out': 'accuracy'})
     return model
 
-def rescue_pile(m_filter, m_expert, predictions_root):
-    PRED_ROOT = Path(predictions_root)
-    PRED_ZERO_PILE = PRED_ROOT / "ZERO" / "NONE" / "NONE" / "NONE"
-    
-    print("\n--- Rescuing Cards from ZERO Pile ---")
-    if not PRED_ZERO_PILE.exists():
-        print(f"Pile {PRED_ZERO_PILE} does not exist.")
-        return
-        
-    pile = list(PRED_ZERO_PILE.glob("*.jpg"))
-    if not pile: 
-        print("ZERO pile is empty.")
-        return
-        
-    print(f"Analyzing {len(pile)} images in rescue pile...")
-    rescued = 0
-    batch_size = 32
-    for i in range(0, len(pile), batch_size):
-        batch = pile[i:i+batch_size]
-        tensors = tf.stack([load_and_preprocess_image(str(p)) for p in batch])
-        
-        is_card_probs = m_filter.predict(tensors, verbose=0)
-        expert_preds = m_expert.predict(tensors, verbose=0)
-        
-        for j, prob in enumerate(is_card_probs):
-            if prob > 0.5:
-                # Expert returns [color, count, pattern, shape]
-                p_color = REV_MAPS['color'][np.argmax(expert_preds[0][j])]
-                p_count = REV_MAPS['count'][np.argmax(expert_preds[1][j])]
-                p_pattern = REV_MAPS['pattern'][np.argmax(expert_preds[2][j])]
-                p_shape = REV_MAPS['shape'][np.argmax(expert_preds[3][j])]
-                
-                label = [p_count, p_color, p_pattern, p_shape]
-                if "ZERO" not in label and "NONE" not in label:
-                    target_dir = PRED_ROOT.joinpath(*label)
-                    target_dir.mkdir(parents=True, exist_ok=True)
-                    shutil.move(batch[j], target_dir / batch[j].name)
-                    rescued += 1
-    
-    print(f"Done! Rescued {rescued} images from the ZERO pile.")
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Default to 'dataset' directory sibling to 'tools'
     default_dataset = Path(__file__).parent.parent / "dataset"
     parser.add_argument("--dataset", default=str(default_dataset))
-    parser.add_argument("--predictions", default="predictions")
     parser.add_argument("--filter_model", default="card_filter_latest.keras")
     parser.add_argument("--expert_model", default="attribute_expert_latest.keras")
     parser.add_argument("--epochs", type=int, default=5)
@@ -210,5 +189,3 @@ if __name__ == "__main__":
     m_e = build_model('expert')
     m_e.fit(ds_expert, epochs=args.epochs)
     m_e.save(args.expert_model)
-    
-    rescue_pile(m_f, m_e, args.predictions)

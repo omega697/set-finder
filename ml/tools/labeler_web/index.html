@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dataset Cleaner v12.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .bulk-selected { border: 4px solid #3b82f6 !important; }
+        .chip-card { border: 4px solid transparent; cursor: pointer; transition: all 0.1s; display: flex; flex-direction: column; height: auto; }
+        .label-container { padding: 4px; display: flex; flex-direction: column; gap: 2px; }
+        .label-text { font-size: 0.65rem; line-height: 1.2; text-align: center; word-break: break-all; }
+        .key-hint { font-size: 0.7rem; color: #666; margin-left: 4px; border: 1px solid #ddd; padding: 1px 3px; border-radius: 3px; background: #eee; }
+        #rescue-loading { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 100; background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 2px solid #3b82f6; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="rescue-loading" class="text-center">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+        <div class="text-xl font-black text-blue-600 uppercase tracking-widest">Rescuing Cards...</div>
+    </div>
+
+    <div class="max-w-[1600px] mx-auto py-8 px-4">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-black text-gray-800 tracking-tighter">Set Labeler <span id="mode-badge" class="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded ml-2">v12.0 Re-organized</span></h1>
+            <div id="stats" class="text-2xl font-mono font-black text-blue-600">-- / --</div>
+        </div>
+
+        <div id="bulk-ui" class="bg-white p-6 rounded-xl shadow-lg">
+            <div class="mb-6 flex justify-between items-center bg-blue-50 p-4 rounded-lg">
+                <div>
+                    <div class="text-xs font-bold text-blue-400 uppercase tracking-widest">Reviewing Pile:</div>
+                    <h2 id="bulk-label" class="text-2xl font-black text-blue-700 uppercase">...</h2>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="skipCategory()" class="px-4 py-2 bg-gray-400 text-white rounded font-bold hover:bg-gray-500 transition">Skip <span class="key-hint">z</span></button>
+                    <button onclick="rescueSelected()" class="px-4 py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700 transition">Rescue <span class="key-hint">x</span></button>
+                    <button onclick="invertSelection()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded font-bold hover:bg-gray-300 transition">Invert <span class="key-hint">i</span></button>
+                    <button onclick="selectAll()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded font-bold hover:bg-gray-300 transition">All <span class="key-hint">a</span></button>
+                </div>
+            </div>
+            <div id="bulk-grid" class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-4 mb-8"></div>
+            <button onclick="submitBulk()" class="w-full py-4 bg-green-600 text-white text-xl font-black rounded-xl uppercase tracking-widest hover:bg-green-700 shadow-lg transition">Confirm Batch <span class="text-sm font-normal opacity-70 ml-2">Space / Enter</span></button>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
