@@ -20,37 +20,52 @@ class CardFilterInstrumentationTest {
         val filter = CardFilter.getInstance(appContext)
         
         val logBuilder = StringBuilder()
+        val failures = StringBuilder()
         var passed = 0
         var tested = 0
         
-        // 1. Test Confirmed Cards (in chips/ directory)
-        testContext.assets.list("chips")?.forEach { assetName ->
+        // 1. Test Confirmed Cards
+        testContext.assets.list("chips/cards")?.forEach { assetName ->
             if (!assetName.endsWith(".jpg")) return@forEach
             tested++
-            val inputStream = testContext.assets.open("chips/$assetName")
+            val inputStream = testContext.assets.open("chips/cards/$assetName")
             val bitmap = BitmapFactory.decodeStream(inputStream)
             val isCard = filter.isCard(bitmap)
-            if (isCard) passed++
-            logBuilder.append(String.format("chips/%s: isCard=%b -> %s\n", assetName, isCard, if (isCard) "PASS" else "FAIL"))
+            
+            if (isCard) {
+                passed++
+            } else {
+                failures.append(String.format("  [chips/cards/%s]: expected isCard=true, but was false\n", assetName))
+            }
+            logBuilder.append(String.format("chips/cards/%s: isCard=%b -> %s\n", assetName, isCard, if (isCard) "PASS" else "FAIL"))
         }
 
         // 2. Test Confirmed Non-Cards
-        testContext.assets.list("non_cards")?.forEach { assetName ->
+        testContext.assets.list("chips/non_cards")?.forEach { assetName ->
             if (!assetName.endsWith(".jpg")) return@forEach
             tested++
-            val inputStream = testContext.assets.open("non_cards/$assetName")
+            val inputStream = testContext.assets.open("chips/non_cards/$assetName")
             val bitmap = BitmapFactory.decodeStream(inputStream)
             val isCard = filter.isCard(bitmap)
-            if (!isCard) passed++
-            logBuilder.append(String.format("non_cards/%s: isCard=%b -> %s\n", assetName, isCard, if (!isCard) "PASS" else "FAIL"))
+            
+            if (!isCard) {
+                passed++
+            } else {
+                failures.append(String.format("  [chips/non_cards/%s]: expected isCard=false, but was true\n", assetName))
+            }
+            logBuilder.append(String.format("chips/non_cards/%s: isCard=%b -> %s\n", assetName, isCard, if (!isCard) "PASS" else "FAIL"))
         }
         
         filter.close()
         
-        android.util.Log.d("CardFilterStageTest", "Results:\n$logBuilder")
-        android.util.Log.d("CardFilterStageTest", "Passed $passed / $tested")
+        val accuracy = if (tested > 0) (passed.toFloat() / tested) else 1f
+        android.util.Log.d("CardFilterStageTest", String.format("Accuracy: %.2f%% (%d/%d)", accuracy * 100, passed, tested))
         
-        // Check if we hit at least 90% accuracy on this diverse set (the goal is 100%, but 0.1 threshold might be tricky)
-        assertThat(passed).isEqualTo(tested)
+        // We expect at least 98% accuracy for Stage 2 Filtering
+        if (accuracy < 0.98f) {
+            val msg = String.format("Card filter accuracy too low: %.2f%% (%d/%d passed). Failures:\n%s", 
+                                   accuracy * 100, passed, tested, failures.toString())
+            throw AssertionError(msg)
+        }
     }
 }

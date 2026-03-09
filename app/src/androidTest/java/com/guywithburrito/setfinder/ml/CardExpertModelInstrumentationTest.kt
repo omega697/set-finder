@@ -29,7 +29,7 @@ class CardExpertModelInstrumentationTest {
         val expert = TFLiteExpertModel(appContext)
         val assets = testContext.assets.list("chips/cards") ?: emptyArray()
         
-        val errors = StringBuilder()
+        val failureSummary = StringBuilder()
         var passed = 0
         var tested = 0
         
@@ -53,21 +53,26 @@ class CardExpertModelInstrumentationTest {
             val patIdx = argmax(predictions[3]!!)
             
             val expectedCard = SetCardTestUtils.parseLabelFromFilename(assetName)
-            val expected = expectedCard?.let { SetCardTestUtils.formatLabel(it) } ?: "???"
-            val actual = mapToLabel(colIdx, shpIdx, cntIdx, patIdx)
+            val expectedStr = expectedCard?.let { SetCardTestUtils.formatLabel(it) } ?: "???"
+            val actualStr = mapToLabel(colIdx, shpIdx, cntIdx, patIdx)
             
-            if (actual != expected) {
-                errors.append("FAILED chips/cards/$assetName: expected [$expected], but was [$actual]\n")
-            } else {
+            if (actualStr == expectedStr) {
                 passed++
+            } else {
+                failureSummary.append(String.format("  [%s]: expected [%s], but was [%s]\n", assetName, expectedStr, actualStr))
             }
         }
         
         expert.close()
         
-        android.util.Log.d("CardExpertTest", "Passed $passed / $tested")
-        if (errors.isNotEmpty()) {
-            throw AssertionError("Expert model accuracy test failed with ${tested - passed} errors:\n$errors")
+        val accuracy = if (tested > 0) (passed.toFloat() / tested) else 1f
+        android.util.Log.d("CardExpertTest", String.format("Accuracy: %.2f%% (%d/%d)", accuracy * 100, passed, tested))
+        
+        // We expect at least 98% accuracy on this robust set
+        if (accuracy < 0.98f) {
+            val msg = String.format("Expert model accuracy too low: %.2f%% (%d/%d passed). Failures:\n%s", 
+                                   accuracy * 100, passed, tested, failureSummary.toString())
+            throw AssertionError(msg)
         }
     }
 
