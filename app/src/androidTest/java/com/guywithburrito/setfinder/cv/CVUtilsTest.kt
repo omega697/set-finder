@@ -10,7 +10,9 @@ import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 
 /**
- * Instrumented tests for geometric OpenCV utilities.
+ * Instrumented tests for core OpenCV utilities. This suite verifies geometric 
+ * calculations (centroids, IoU) and the 'isWhiteCard' validation logic, 
+ * which together ensure the accuracy of the detection and filtering components.
  */
 @RunWith(AndroidJUnit4::class)
 class CVUtilsTest {

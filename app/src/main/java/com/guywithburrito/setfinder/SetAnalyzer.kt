@@ -8,18 +8,17 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
-import com.guywithburrito.setfinder.cv.CardFinder
-import com.guywithburrito.setfinder.cv.ChipExtractor
 import com.guywithburrito.setfinder.cv.FrameProcessor
 import com.guywithburrito.setfinder.cv.OpenCVFrameProcessor
+import com.guywithburrito.setfinder.cv.QuadFinder
+import com.guywithburrito.setfinder.cv.OpenCVQuadFinder
+import com.guywithburrito.setfinder.cv.ChipExtractor
 import com.guywithburrito.setfinder.ml.CardIdentifier
 import com.guywithburrito.setfinder.tracking.CardTracker
 import com.guywithburrito.setfinder.tracking.TrackedCard
 import com.guywithburrito.setfinder.tracking.HistoryPersistence
 import com.guywithburrito.setfinder.tracking.SettingsManager
 import com.guywithburrito.setfinder.card.SetCard
-import com.guywithburrito.setfinder.card.SetSolver
-import com.guywithburrito.setfinder.card.DefaultSetSolver
 import org.opencv.core.Mat
 import org.opencv.core.Point
 import org.opencv.core.Size
@@ -31,16 +30,21 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * Orchestrates the real-time Set detection pipeline across multiple camera frames.
+ * Manages temporal tracking, asynchronous identification, and game-rule solving.
+ * High-performance design: Synchronous fast-path for geometric tracking, 
+ * Asynchronous slow-path for trait identification.
+ */
 class SetAnalyzer(
     private val context: Context,
     private val scope: CoroutineScope,
     val settingsManager: SettingsManager,
-    private val finder: CardFinder = CardFinder(settingsManager),
     private val tracker: CardTracker = CardTracker(),
-    private val solver: SetSolver = DefaultSetSolver(),
     private val frameProcessor: FrameProcessor = OpenCVFrameProcessor(),
-    private val identifier: CardIdentifier = CardIdentifier.getInstance(context),
+    private val finder: QuadFinder = OpenCVQuadFinder(settingsManager),
     private val extractor: ChipExtractor = ChipExtractor(),
+    private val identifier: CardIdentifier = CardIdentifier.getInstance(context),
     private val detector: SetDetector = SetDetector(finder, extractor, identifier, frameProcessor)
 ) : ImageAnalysis.Analyzer {
     private val historyPersistence = HistoryPersistence(context)
@@ -71,6 +75,7 @@ class SetAnalyzer(
     init {
         scope.launch {
             while (isActive) {
+                // Background smoothing of tracked card boundaries
                 tracker.activeCards.toList().forEach { it.updateSmoothing(it.bounds) }
                 kotlinx.coroutines.delay(16)
             }
@@ -103,22 +108,6 @@ class SetAnalyzer(
         }
     }
 
-    override fun analyze(image: ImageProxy) {
-        val frame: Mat = image.toMat()
-        val rotationDegrees = image.imageInfo.rotationDegrees
-        val rotatedFrame = frameProcessor.createMat()
-        when (rotationDegrees) {
-            90 -> frameProcessor.rotate(frame, rotatedFrame, FrameProcessor.ROTATE_90_CLOCKWISE)
-            180 -> frameProcessor.rotate(frame, rotatedFrame, FrameProcessor.ROTATE_180)
-            270 -> frameProcessor.rotate(frame, rotatedFrame, FrameProcessor.ROTATE_90_COUNTERCLOCKWISE)
-            else -> frame.copyTo(rotatedFrame)
-        }
-        
-        analyzeMat(rotatedFrame)
-        frame.release(); rotatedFrame.release()
-        image.close()
-    }
-
     fun analyzeMat(frame: Mat) {
         val maxDim = 1000.0
         val scale = maxDim / Math.max(frame.cols().toDouble(), frame.rows().toDouble())
@@ -128,21 +117,22 @@ class SetAnalyzer(
         analysisWidth = analysisFrame.cols().toFloat()
         analysisHeight = analysisFrame.rows().toFloat()
         
-        var quads = finder.findLikelyCards(analysisFrame)
+        // 1. FAST PATH: Geometric Detection (Every Frame)
+        var quads = detector.detectQuads(analysisFrame)
         
         if (singleCardMode) {
             val center = Point(analysisFrame.cols() / 2.0, analysisFrame.rows() / 2.0)
             val best = quads.minByOrNull { q ->
-                val p = q.toList()
-                val qc = Point(p.sumOf { it.x } / 4.0, p.sumOf { it.y } / 4.0)
+                val qc = Point(q.sumOf { it.x } / 4.0, q.sumOf { it.y } / 4.0)
                 Math.sqrt(Math.pow(qc.x - center.x, 2.0) + Math.pow(qc.y - center.y, 2.0))
             }
             quads = if (best != null) listOf(best) else emptyList()
         }
 
-        val candidatePoints = quads.map { it.toList() }
-        val trackedCards = tracker.updateGeometric(candidatePoints)
+        // 2. Temporal Tracking (Stable identities across frames)
+        val trackedCards = tracker.updateGeometric(quads)
 
+        // 3. SLOW PATH: Selective Asynchronous Identification
         if (!isIdentifying.get()) {
             val cardsToId = tracker.getCardsForIdentification()
             if (cardsToId.isNotEmpty()) {
@@ -153,15 +143,17 @@ class SetAnalyzer(
             }
         }
         
+        // 4. Domain Logic: Game Rule Solving (on tracked stable cards)
         val identifiedOnly = trackedCards.filter { it.card != null }
         val identifiedCards = identifiedOnly.map { it.card!! }
-        val solvedSets = solver.solve(identifiedCards)
+        val solvedSets = SetCard.findSets(identifiedCards)
         
         val sets = mutableListOf<List<TrackedCard>>()
         solvedSets.forEach { setCards ->
             val trackedSet = setCards.map { card -> identifiedOnly.first { it.card == card } }
             sets.add(trackedSet)
             
+            // Persist new sets found in this session
             if (setCards.toSet() !in seenSetsInSession) {
                 seenSetsInSession.add(setCards.toSet())
                 captureAndSaveSet(trackedSet, frame.clone(), scale)
@@ -169,11 +161,12 @@ class SetAnalyzer(
         }
         analysisFrame.release()
 
+        // 5. Update UI state (Observed by Compose)
         scope.launch(Dispatchers.Main) {
             _detectedRects.clear(); _detectedRects.addAll(trackedCards)
             _foundSets.clear(); _foundSets.addAll(sets)
             _allCandidates.clear()
-            if (debugMode) candidatePoints.forEach { _allCandidates.add(it) }
+            if (debugMode) quads.forEach { _allCandidates.add(it) }
         }
     }
 
@@ -183,8 +176,10 @@ class SetAnalyzer(
         scope.launch(Dispatchers.Default) {
             try {
                 val fullFrame = lastFrameForId ?: return@launch
-                val quads = cards.map { it.bounds }
-                val results = detector.identifyQuads(fullFrame, quads, lastScaleForId)
+                val quadsToId = cards.map { it.bounds }
+                
+                // Identify traits using the detector's vision pipeline
+                val results = detector.identifyQuads(fullFrame, quadsToId, lastScaleForId)
                 
                 results.forEachIndexed { index, result ->
                     tracker.updateIdentification(cards[index].id, result)
@@ -199,11 +194,41 @@ class SetAnalyzer(
         scope.launch(Dispatchers.Default) {
             try {
                 val quads = set.map { it.bounds }
-                detector.identifyQuads(frame, quads, scale)
+                val results = detector.identifyQuads(frame, quads, scale)
+                
+                val cardsWithImages = set.mapIndexedNotNull { index, tracked ->
+                    results[index]?.let { identified ->
+                        val corners = tracked.bounds.map { p -> Point(p.x / scale, p.y / scale) }
+                        val fullResQuad = frameProcessor.createMatOfPoint2f(corners)
+                        val chip = detector.extractChipForPersistence(frame, fullResQuad)
+                        fullResQuad.release()
+                        identified to chip
+                    }
+                }
+                historyPersistence.saveSet(cardsWithImages)
             } finally {
                 frame.release()
             }
         }
+    }
+
+    /**
+     * Internal helper to bridge camera frames to OpenCV Mats.
+     */
+    override fun analyze(image: ImageProxy) {
+        val frame: Mat = image.toMat()
+        val rotationDegrees = image.imageInfo.rotationDegrees
+        val rotatedFrame = frameProcessor.createMat()
+        when (rotationDegrees) {
+            90 -> frameProcessor.rotate(frame, rotatedFrame, FrameProcessor.ROTATE_90_CLOCKWISE)
+            180 -> frameProcessor.rotate(frame, rotatedFrame, FrameProcessor.ROTATE_180)
+            270 -> frameProcessor.rotate(frame, rotatedFrame, FrameProcessor.ROTATE_90_COUNTERCLOCKWISE)
+            else -> frame.copyTo(rotatedFrame)
+        }
+        
+        analyzeMat(rotatedFrame)
+        frame.release(); rotatedFrame.release()
+        image.close()
     }
 
     private fun ImageProxy.toMat(): Mat {

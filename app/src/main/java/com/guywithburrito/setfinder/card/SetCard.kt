@@ -27,5 +27,22 @@ data class SetCard(val shape: Shape, val pattern: Pattern, val count: Count, val
             return numDistinct { shape } != 2 && numDistinct { pattern } != 2 &&
                     numDistinct { count } != 2 && numDistinct { color } != 2
         }
+
+        /**
+         * Finds all valid sets in a list of cards.
+         */
+        fun findSets(cards: List<SetCard>): List<List<SetCard>> {
+            val found = mutableListOf<List<SetCard>>()
+            for (i in 0 until cards.size) {
+                for (j in i + 1 until cards.size) {
+                    for (k in j + 1 until cards.size) {
+                        if (isSet(cards[i], cards[j], cards[k])) {
+                            found.add(listOf(cards[i], cards[j], cards[k]))
+                        }
+                    }
+                }
+            }
+            return found
+        }
     }
 }

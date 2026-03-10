@@ -7,6 +7,12 @@ import com.guywithburrito.setfinder.ui.SetFinderTheme
 import org.junit.Rule
 import org.junit.Test
 
+/**
+ * This test evaluates the Settings screen's user interface, specifically focusing 
+ * on the ability to reorder highlight colors via drag-and-drop gestures. It ensures 
+ * that the interactive priority list for set highlights functions correctly 
+ * and persists the user's preferences.
+ */
 class SettingsScreenTest {
 
     @get:Rule

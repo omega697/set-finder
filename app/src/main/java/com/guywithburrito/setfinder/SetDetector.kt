@@ -2,7 +2,7 @@ package com.guywithburrito.setfinder
 
 import android.graphics.Bitmap
 import com.guywithburrito.setfinder.card.SetCard
-import com.guywithburrito.setfinder.cv.CardFinder
+import com.guywithburrito.setfinder.cv.QuadFinder
 import com.guywithburrito.setfinder.cv.ChipExtractor
 import com.guywithburrito.setfinder.cv.FrameProcessor
 import com.guywithburrito.setfinder.cv.OpenCVFrameProcessor
@@ -13,19 +13,30 @@ import org.opencv.core.Point
 import org.opencv.core.Size
 
 /**
- * Pure CV/ML pipeline extracted from SetAnalyzer for testability and modularity.
- * Orchestrates Stage 1 (Extraction), Stage 2 (Filtering), and Stage 3 (Identification).
+ * Represents a card detected in a single frame, including its identified 
+ * traits and its spatial coordinates.
+ */
+data class DetectedCard(
+    val card: SetCard,
+    val bounds: List<Point>
+)
+
+/**
+ * Pure CV/ML pipeline for detecting and identifying cards in a single image.
+ * Provides granular control over detection and identification stages to support 
+ * real-time performance optimizations.
  */
 class SetDetector(
-    private val finder: CardFinder,
+    private val finder: QuadFinder,
     private val extractor: ChipExtractor,
     private val identifier: CardIdentifier,
     private val frameProcessor: FrameProcessor = OpenCVFrameProcessor()
 ) {
     /**
-     * Finds and identifies all sets in a single frame.
+     * Convenience method for one-shot detection and identification.
+     * Note: This is synchronous and may be slow for large frames.
      */
-    fun detectSets(frame: Mat): List<List<SetCard>> {
+    fun detectCards(frame: Mat): List<DetectedCard> {
         val frameWidth = frame.cols().toDouble()
         val frameHeight = frame.rows().toDouble()
         val maxDim = 1000.0
@@ -34,53 +45,55 @@ class SetDetector(
         val analysisFrame = frameProcessor.createMat()
         frameProcessor.resize(frame, analysisFrame, Size(), scale, scale, 1)
         
-        // 1. Detect
-        val quads = finder.findLikelyCards(analysisFrame)
-        
-        // 2. Identify (using Stage 1 Extractor and Stages 2/3 Identifier)
-        val identified = identifyQuads(frame, quads.map { it.toList() }, scale).filterNotNull()
-        
-        // 3. Solve
-        val sets = findSets(identified)
+        val quads = detectQuads(analysisFrame)
+        val results = mutableListOf<DetectedCard>()
+        quads.forEach { pointsInAnalysisSpace ->
+            val identified = identifySingleQuad(frame, pointsInAnalysisSpace, scale)
+            identified?.let { 
+                results.add(DetectedCard(it, pointsInAnalysisSpace))
+            }
+        }
         
         analysisFrame.release()
-        return sets
+        return results
     }
 
     /**
+     * STAGE 1: Fast Geometric Detection.
+     * Finds candidate quads in the provided frame.
+     */
+    fun detectQuads(analysisFrame: Mat): List<List<Point>> {
+        return finder.findLikelyCards(analysisFrame).map { it.toList() }
+    }
+
+    /**
+     * STAGES 2 & 3: Chip Extraction & Identification.
      * Identifies a list of quads found in a frame.
      */
     fun identifyQuads(frame: Mat, quadPoints: List<List<Point>>, scale: Double): List<SetCard?> {
-        return quadPoints.map { pointsInAnalysisSpace ->
-            // Stage 1: Chip Extraction
-            val corners = pointsInAnalysisSpace.map { p -> Point(p.x / scale, p.y / scale) }
-            val fullResQuad = frameProcessor.createMatOfPoint2f(corners)
-            
-            val chip = extractor.extract(frame, fullResQuad)
-            
-            // Stage 2 & 3: Filter & Identify
-            val result = identifier.identifyCard(chip)
-            
-            fullResQuad.release()
-            result
-        }
+        return quadPoints.map { identifySingleQuad(frame, it, scale) }
     }
 
     /**
-     * Finds all valid sets in a list of identified cards.
+     * Extracts a standardized chip for a given quad. 
+     * Useful for persisting identified cards to history.
      */
-    fun findSets(cards: List<SetCard>): List<List<SetCard>> {
-        val found = mutableListOf<List<SetCard>>()
-        for (i in 0 until cards.size) {
-            for (j in i + 1 until cards.size) {
-                for (k in j + 1 until cards.size) {
-                    if (SetCard.isSet(cards[i], cards[j], cards[k])) {
-                        found.add(listOf(cards[i], cards[j], cards[k]))
-                    }
-                }
-            }
-        }
-        return found
+    fun extractChipForPersistence(frame: Mat, fullResQuad: MatOfPoint2f): Bitmap {
+        return extractor.extract(frame, fullResQuad)
+    }
+
+    /**
+     * Internal helper to extract and identify a single quad.
+     */
+    private fun identifySingleQuad(frame: Mat, points: List<Point>, scale: Double): SetCard? {
+        val corners = points.map { p -> Point(p.x / scale, p.y / scale) }
+        val fullResQuad = frameProcessor.createMatOfPoint2f(corners)
+        
+        val chip = extractor.extract(frame, fullResQuad)
+        val result = identifier.identifyCard(chip)
+        
+        fullResQuad.release()
+        return result
     }
 
     /**

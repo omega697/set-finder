@@ -4,11 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.guywithburrito.setfinder.card.SetCard
-import com.guywithburrito.setfinder.cv.CardFinder
+import com.guywithburrito.setfinder.cv.OpenCVQuadFinder
 import com.guywithburrito.setfinder.cv.ChipExtractor
 import com.guywithburrito.setfinder.ml.CardIdentifier
-import com.guywithburrito.setfinder.tracking.SettingsManager
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,8 +19,13 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import java.io.File
 import java.io.FileOutputStream
-import kotlinx.coroutines.MainScope
 
+/**
+ * This test verifies the end-to-end identification process for all cards in a 
+ * known test scene. It ensures that the modular components (finder, extractor, 
+ * identifier) work together to correctly map and identify every card in a complex 
+ * image, serving as a regression test for the entire vision-to-ML pipeline.
+ */
 @RunWith(AndroidJUnit4::class)
 class IdentifyAllCardsTest {
 
@@ -39,7 +42,7 @@ class IdentifyAllCardsTest {
         val small = Mat()
         Imgproc.resize(mat, small, Size(), scale, scale, Imgproc.INTER_AREA)
 
-        val finder = CardFinder()
+        val finder = OpenCVQuadFinder()
         val quads = finder.findCandidates(small)
         android.util.Log.d("IdentifyAll", "Detected ${quads.size} cards.")
 

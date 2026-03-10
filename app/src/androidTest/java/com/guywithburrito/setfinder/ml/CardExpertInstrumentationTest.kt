@@ -10,9 +10,10 @@ import org.junit.runner.RunWith
 import java.lang.StringBuilder
 
 /**
- * Instrumented test for Stage 3 (Card Identification).
- * Uses the production CardExpert factory to ensure verification stays in sync with app logic.
- * This test is comprehensive and uses all meticulously arranged test chips in assets/chips/cards.
+ * This instrumented test verifies the accuracy of the CardExpert ML model across a comprehensive 
+ * suite of card chips. It ensures that the model correctly identifies all four card traits 
+ * (Count, Shape, Color, and Pattern) for every verified asset, which is the final requirement 
+ * for a successful Set detection.
  */
 @RunWith(AndroidJUnit4::class)
 class CardExpertInstrumentationTest {

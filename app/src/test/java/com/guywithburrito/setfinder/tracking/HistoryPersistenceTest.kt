@@ -11,6 +11,11 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
 
+/**
+ * This test evaluates the HistoryPersistence class, verifying that detected 
+ * sets and their associated card images are correctly saved to and loaded 
+ * from device storage, including history limits and clearing logic.
+ */
 @RunWith(RobolectricTestRunner::class)
 class HistoryPersistenceTest {
 

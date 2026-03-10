@@ -4,6 +4,12 @@ import com.guywithburrito.setfinder.card.SetCard
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
+/**
+ * This test evaluates the CardModelMapper, ensuring that raw ML output indices 
+ * are correctly translated into domain-specific SetCard traits (Color, Shape, 
+ * Count, Pattern). It also verifies the robustness of the argmax calculation 
+ * and handling of invalid indices.
+ */
 class CardModelMapperTest {
 
     @Test

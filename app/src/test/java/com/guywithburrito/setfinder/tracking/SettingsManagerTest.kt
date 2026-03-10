@@ -9,6 +9,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
+/**
+ * This test evaluates the SettingsManager, ensuring that user preferences for 
+ * highlight colors, sensitivity, and labels are correctly persisted and 
+ * retrieved using Robolectric-backed SharedPreferences.
+ */
 @RunWith(RobolectricTestRunner::class)
 class SettingsManagerTest {
 

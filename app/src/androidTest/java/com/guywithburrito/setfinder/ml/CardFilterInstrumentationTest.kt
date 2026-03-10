@@ -8,6 +8,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.lang.StringBuilder
 
+/**
+ * This instrumented test evaluates the CardFilter ML model's ability to 
+ * distinguish between actual Set cards and non-card background elements. 
+ * It ensures high classification accuracy across a variety of test chips, 
+ * which is essential for reducing false positives in the detection pipeline.
+ */
 @RunWith(AndroidJUnit4::class)
 class CardFilterInstrumentationTest {
 

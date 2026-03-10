@@ -5,25 +5,28 @@ import android.graphics.BitmapFactory
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
-import com.guywithburrito.setfinder.cv.CardFinder
-import com.guywithburrito.setfinder.cv.CardUnwarper
+import com.guywithburrito.setfinder.cv.OpenCVQuadFinder
+import com.guywithburrito.setfinder.cv.ChipUnwarper
 import com.guywithburrito.setfinder.cv.ChipExtractor
 import com.guywithburrito.setfinder.ml.CardIdentifier
-import com.guywithburrito.setfinder.ml.*
-import com.guywithburrito.setfinder.cv.OpenCVWhiteBalancer
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
 import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.imgproc.Imgproc
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.test.assertNotNull
 
+/**
+ * This test evaluates the multi-component image processing pipeline, including 
+ * loading, detection, unwarping, identification, and coordinate mapping. It ensures 
+ * that each step correctly transforms the data and that the final output aligns 
+ * with expectations, which is critical for the app's visual overlay and detection accuracy.
+ */
 @RunWith(AndroidJUnit4::class)
 class PipelineAlignmentTest {
 
@@ -43,7 +46,7 @@ class PipelineAlignmentTest {
     @Test
     fun stage1_Detection_FindsCorrectCount() {
         val mat = loadFullFrame("scenes/cards_13_wide_shot.jpg")
-        val finder = CardFinder()
+        val finder = OpenCVQuadFinder()
         val cards = finder.findLikelyCards(mat)
         
         // Note: Current recall on this scene is ~11/13.
@@ -55,8 +58,8 @@ class PipelineAlignmentTest {
     fun stage2_Unwarp_ProducesCorrectDimensions() {
         // Use renamed asset
         val mat = loadFullFrame("scenes/scene_two_green_shaded_diamond.jpg")
-        val finder = CardFinder()
-        val unwarper = CardUnwarper()
+        val finder = OpenCVQuadFinder()
+        val unwarper = ChipUnwarper()
         
         // Find quads in a real frame
         val cards = finder.findCandidates(mat)
@@ -79,7 +82,7 @@ class PipelineAlignmentTest {
         
         // Use renamed asset
         val mat = loadFullFrame("scenes/scene_two_green_shaded_diamond.jpg")
-        val finder = CardFinder()
+        val finder = OpenCVQuadFinder()
         val quads = finder.findCandidates(mat)
         assertThat(quads).isNotEmpty()
         

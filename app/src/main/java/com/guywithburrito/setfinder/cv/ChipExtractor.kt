@@ -13,14 +13,14 @@ import org.opencv.imgproc.Imgproc
  * Output chips have the "natural" card aspect ratio (144x224).
  */
 class ChipExtractor(
-    private val unwarper: CardUnwarper = CardUnwarper(),
+    private val unwarper: ChipUnwarper = ChipUnwarper(),
     private val whiteBalancer: WhiteBalancer = OpenCVWhiteBalancer()
 ) {
     /**
      * Extracts a 144x224 white-balanced RGB chip from a frame and quad.
      */
     fun extract(frame: Mat, quad: MatOfPoint2f): Bitmap {
-        // 1. Unwarp (144x224) - CardUnwarper targets this size
+        // 1. Unwarp (144x224) - ChipUnwarper targets this size
         val warped = unwarper.unwarp(frame, quad)
         
         // 2. White Balance

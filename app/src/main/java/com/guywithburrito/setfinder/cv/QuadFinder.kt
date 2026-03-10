@@ -1,6 +1,5 @@
 package com.guywithburrito.setfinder.cv
 
-import android.util.Log
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
 
@@ -19,16 +18,25 @@ interface QuadFindingStrategy {
 }
 
 /**
- * High-precision CardFinder using margin-based lightness/color validation.
+ * Interface for finding candidate quadrilaterals in an image.
+ */
+interface QuadFinder {
+    fun findCandidates(mat: Mat): List<MatOfPoint2f>
+    fun findCandidatesFull(mat: Mat): List<CandidateQuad>
+    fun findLikelyCards(mat: Mat): List<MatOfPoint2f>
+}
+
+/**
+ * High-precision OpenCV-based QuadFinder using margin-based lightness/color validation.
  * Optimized to ignore background clutter (keyboards/desks) by verifying card stock.
  */
-open class CardFinder(private val settingsManager: com.guywithburrito.setfinder.tracking.SettingsManager? = null) {
+class OpenCVQuadFinder(private val settingsManager: com.guywithburrito.setfinder.tracking.SettingsManager? = null) : QuadFinder {
 
-    fun findCandidates(mat: Mat): List<MatOfPoint2f> {
+    override fun findCandidates(mat: Mat): List<MatOfPoint2f> {
         return findCandidatesFull(mat).map { it.quad }
     }
 
-    fun findCandidatesFull(mat: Mat): List<CandidateQuad> {
+    override fun findCandidatesFull(mat: Mat): List<CandidateQuad> {
         val frameArea = (mat.width() * mat.height()).toDouble()
         val allCandidates = mutableListOf<CandidateQuad>()
         
@@ -142,12 +150,13 @@ open class CardFinder(private val settingsManager: com.guywithburrito.setfinder.
             if (used[i]) continue
             val cluster = mutableListOf<MatOfPoint>()
             cluster.add(symbols[i]); used[i] = true
-            val centerI = getCenter(symbols[i])
             val rectI = Imgproc.boundingRect(symbols[i])
+            val centerI = Point(rectI.x + rectI.width / 2.0, rectI.y + rectI.height / 2.0)
             val maxDist = Math.max(rectI.width, rectI.height) * 6.0
             for (j in i + 1 until symbols.size) {
                 if (used[j]) continue
-                val centerJ = getCenter(symbols[j])
+                val rectJ = Imgproc.boundingRect(symbols[j])
+                val centerJ = Point(rectJ.x + rectJ.width / 2.0, rectJ.y + rectJ.height / 2.0)
                 val dist = Math.sqrt(Math.pow(centerI.x - centerJ.x, 2.0) + Math.pow(centerI.y - centerJ.y, 2.0))
                 if (dist < maxDist) { cluster.add(symbols[j]); used[j] = true }
             }
@@ -183,12 +192,7 @@ open class CardFinder(private val settingsManager: com.guywithburrito.setfinder.
         return unique
     }
 
-    private fun getCenter(cnt: MatOfPoint): Point {
-        val rect = Imgproc.boundingRect(cnt)
-        return Point(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
-    }
-
-    fun findLikelyCards(mat: Mat): List<MatOfPoint2f> {
+    override fun findLikelyCards(mat: Mat): List<MatOfPoint2f> {
         return findCandidates(mat)
     }
 }

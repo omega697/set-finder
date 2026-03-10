@@ -12,6 +12,12 @@ import org.opencv.core.Mat
 import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 
+/**
+ * This test evaluates the OpenCV-based white balancing algorithm. It ensures that 
+ * images with significant color biases are correctly normalized (centering chrominance 
+ * in the Lab color space), which is a critical preprocessing step for robust 
+ * ML-based card identification.
+ */
 @RunWith(AndroidJUnit4::class)
 class WhiteBalancerInstrumentationTest {
 

@@ -1,30 +1,33 @@
 package com.guywithburrito.setfinder.cv
 
-import org.opencv.core.*
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint2f
+import org.opencv.core.Point
+import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 /**
  * Aligned with chip_extractor.py logic for corner sorting and dimensions.
  */
-open class CardUnwarper {
+class ChipUnwarper {
     companion object {
         const val TARGET_WIDTH = 144.0
         const val TARGET_HEIGHT = 224.0
     }
 
     fun unwarp(frame: Mat, corners: MatOfPoint2f): Mat {
-        var rectified = rectify(corners.toArray())
-        
-        val p0 = rectified[0]; val p1 = rectified[1]; val p2 = rectified[2]; val p3 = rectified[3]
-        val width = Math.sqrt(Math.pow(p1.x - p0.x, 2.0) + Math.pow(p1.y - p0.y, 2.0))
-        val height = Math.sqrt(Math.pow(p3.x - p0.x, 2.0) + Math.pow(p3.y - p0.y, 2.0))
-        
-        if (width > height) {
-            // Swap to make it portrait: bl, tl, tr, br
-            rectified = arrayOf(rectified[3], rectified[0], rectified[1], rectified[2])
-        }
-        
-        val src = MatOfPoint2f(*rectified)
+        val (p0, p1, p2, p3) = rectify(corners.toArray())
+        val width = sqrt((p1.x - p0.x).pow(2.0) + (p1.y - p0.y).pow(2.0))
+        val height = sqrt((p3.x - p0.x).pow(2.0) + (p3.y - p0.y).pow(2.0))
+
+
+        val src =
+            // Possibly swap to make it portrait: bl, tl, tr, br
+            if (width > height) MatOfPoint2f(p3, p0, p1, p2)
+            else MatOfPoint2f(p0, p1, p2, p3)
+
         val dst = MatOfPoint2f(
             Point(0.0, 0.0),
             Point(TARGET_WIDTH - 1, 0.0),

@@ -14,7 +14,7 @@ import org.opencv.imgproc.Imgproc
 
 /**
  * Functional verification of the Chip Extraction pipeline.
- * Tests both the low-level CardUnwarper and the high-level ChipExtractor.
+ * Tests both the low-level ChipUnwarper and the high-level ChipExtractor.
  */
 @RunWith(AndroidJUnit4::class)
 class ChipExtractionFunctionalTest {
@@ -38,7 +38,7 @@ class ChipExtractionFunctionalTest {
 
     @Test
     fun cardUnwarper_producesCorrectDimensions() {
-        val unwarper = CardUnwarper()
+        val unwarper = ChipUnwarper()
         val chip = unwarper.unwarp(testMat, testQuad)
 
         verifyDimensions(chip)
@@ -62,8 +62,8 @@ class ChipExtractionFunctionalTest {
     }
 
     private fun verifyDimensions(mat: Mat) {
-        assertThat(mat.cols().toDouble()).isEqualTo(CardUnwarper.TARGET_WIDTH)
-        assertThat(mat.rows().toDouble()).isEqualTo(CardUnwarper.TARGET_HEIGHT)
+        assertThat(mat.cols().toDouble()).isEqualTo(ChipUnwarper.TARGET_WIDTH)
+        assertThat(mat.rows().toDouble()).isEqualTo(ChipUnwarper.TARGET_HEIGHT)
     }
 
     private fun verifyContent(mat: Mat) {

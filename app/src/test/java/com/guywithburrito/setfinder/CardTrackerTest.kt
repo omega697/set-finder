@@ -5,6 +5,12 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import org.opencv.core.Point
 
+/**
+ * This test evaluates the CardTracker's ability to maintain stable card identities 
+ * across consecutive frames. It verifies proximity-based matching, asymmetric 
+ * geometric smoothing (making expansion snappier than contraction), and the 
+ * correct expiration of stale tracks.
+ */
 class CardTrackerTest {
 
     private val boundsA = listOf(Point(0.0, 0.0), Point(10.0, 0.0), Point(10.0, 10.0), Point(0.0, 10.0))

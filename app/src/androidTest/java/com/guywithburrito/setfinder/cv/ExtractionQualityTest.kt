@@ -5,8 +5,6 @@ import android.graphics.BitmapFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.services.storage.TestStorage
-import com.guywithburrito.setfinder.cv.CardFinder
-import com.guywithburrito.setfinder.cv.ChipExtractor
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,10 +17,16 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import java.io.IOException
 
+/**
+ * This test serves as a debug utility for evaluating chip extraction quality across 
+ * all test scenes. It batch-processes every scene asset, detects card candidates, 
+ * and saves the resulting chips to device storage for visual inspection and 
+ * ground-truth creation.
+ */
 @RunWith(AndroidJUnit4::class)
 class ExtractionQualityTest {
 
-    private val finder = CardFinder()
+    private val finder = OpenCVQuadFinder()
     private val extractor = ChipExtractor()
 
     @Before
