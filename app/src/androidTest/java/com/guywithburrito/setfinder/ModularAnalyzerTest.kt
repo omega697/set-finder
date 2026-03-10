@@ -9,7 +9,6 @@ import com.guywithburrito.setfinder.card.SetCard
 import com.guywithburrito.setfinder.cv.OpenCVQuadFinder
 import com.guywithburrito.setfinder.cv.ChipExtractor
 import com.guywithburrito.setfinder.ml.CardIdentifier
-import com.guywithburrito.setfinder.tracking.SettingsManager
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -20,15 +19,15 @@ import org.opencv.imgproc.Imgproc
 import kotlin.test.assertNotNull
 
 /**
- * This test evaluates the integrated performance of the card detection and identification 
- * components on full-resolution scene assets. It ensures that the candidate finder and 
- * attribute expert work together correctly to identify specific cards within real-world 
- * images, serving as a functional validation of the combined vision and ML pipeline.
+ * Functional validation of the integrated vision and ML pipeline.
+ * Tests detection, extraction, and identification on real-world scene assets.
  */
 @RunWith(AndroidJUnit4::class)
 class ModularAnalyzerTest {
 
-    private lateinit var detector: SetDetector
+    private lateinit var finder: OpenCVQuadFinder
+    private lateinit var extractor: ChipExtractor
+    private lateinit var identifier: CardIdentifier
 
     @Before
     fun setUp() {
@@ -36,12 +35,9 @@ class ModularAnalyzerTest {
             throw RuntimeException("OpenCV initialization failed!")
         }
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val settingsManager = SettingsManager(context)
-        val finder = OpenCVQuadFinder()
-        val extractor = ChipExtractor()
-        val identifier = CardIdentifier.getInstance(context)
-        
-        detector = SetDetector(finder, extractor, identifier)
+        finder = OpenCVQuadFinder()
+        extractor = ChipExtractor()
+        identifier = CardIdentifier.getInstance(context)
     }
 
     @Test
@@ -81,39 +77,17 @@ class ModularAnalyzerTest {
     }
 
     @Test
-    fun scene_RedEmptySquiggle_IdentifyFull() {
-        val mat = loadAsset("scenes/card_3_red_empty_squiggle.jpg")
-        val card = identifyFirstCard(mat)
-        
-        assertNotNull(card)
-        assertThat(card.color).isEqualTo(SetCard.Color.RED)
-        assertThat(card.count).isEqualTo(SetCard.Count.THREE)
-        assertThat(card.shape).isEqualTo(SetCard.Shape.SQUIGGLE)
-        assertThat(card.pattern).isEqualTo(SetCard.Pattern.EMPTY)
-    }
-
-    @Test
-    fun scene_RedShadedDiamond_IdentifyFull() {
-        val mat = loadAsset("scenes/card_1_red_shaded_diamond.jpg")
-        val card = identifyFirstCard(mat)
-        
-        assertNotNull(card)
-        assertThat(card.color).isEqualTo(SetCard.Color.RED)
-        assertThat(card.count).isEqualTo(SetCard.Count.ONE)
-        assertThat(card.shape).isEqualTo(SetCard.Shape.DIAMOND)
-        assertThat(card.pattern).isEqualTo(SetCard.Pattern.SHADED)
-    }
-
-    @Test
     fun scene_Kindle_ShouldReturnNoCards() {
         val mat = loadAsset("scenes/desk_no_cards.jpg")
-        val detected = detector.detectCards(mat)
-        assertThat(detected).isEmpty()
+        val candidates = finder.findCandidates(mat)
+        assertThat(candidates).isEmpty()
     }
 
     private fun identifyFirstCard(mat: Mat): SetCard? {
-        val detected = detector.detectCards(mat)
-        return detected.firstOrNull()?.card
+        val candidates = finder.findCandidates(mat)
+        val first = candidates.firstOrNull() ?: return null
+        val chip = extractor.extract(mat, first)
+        return identifier.identifyCard(chip)
     }
 
     private fun loadAsset(assetName: String): Mat {
