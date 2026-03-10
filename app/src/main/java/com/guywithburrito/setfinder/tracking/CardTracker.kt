@@ -26,10 +26,12 @@ class TrackedCard(
     var framesSeen by mutableIntStateOf(framesSeen)
     var lastIdentifiedTimestamp by mutableLongStateOf(lastIdentifiedTimestamp)
     
-    val velocities: List<Point> = listOf(Point(0.0, 0.0), Point(0.0, 0.0), Point(0.0, 0.0), Point(0.0, 0.0))
     val boundsHistory: MutableList<List<Point>> = mutableListOf()
     var thrashScore by mutableDoubleStateOf(0.0)
 
+    /**
+     * Calculates the center of the card's current bounds.
+     */
     fun getCenter(): Point {
         var sumX = 0.0
         var sumY = 0.0
@@ -37,6 +39,9 @@ class TrackedCard(
         return Point(sumX / bounds.size, sumY / bounds.size)
     }
 
+    /**
+     * Updates the thrash score based on the historical stability of corners.
+     */
     fun updateThrashScore() {
         if (boundsHistory.size < 2) {
             thrashScore = 0.0
@@ -49,12 +54,8 @@ class TrackedCard(
             val prev = boundsHistory[h-1]
             val curr = boundsHistory[h]
             if (prev.size == curr.size) {
-                for (p in 0 until prev.size) {
-                    val dX = prev[p].x - curr[p].x
-                    val dY = prev[p].y - curr[p].y
-                    totalDist += Math.sqrt(dX * dX + dY * dY)
-                    pairs++
-                }
+                totalDist += calculateCornerError(prev, curr)
+                pairs++
             }
         }
         thrashScore = if (pairs > 0) totalDist / pairs else 0.0
@@ -91,27 +92,62 @@ class TrackedCard(
         }
         smoothedBounds = newSmoothed
     }
-
-    private fun matchRotation(sortedTarget: List<Point>, current: List<Point>): List<Point> {
-        var bestOffset = 0
-        var minTotalDist = Double.MAX_VALUE
-        
-        for (offset in 0 until 4) {
-            var currentTotalDist = 0.0
-            for (i in 0 until 4) {
-                currentTotalDist += dist(current[i], sortedTarget[(i + offset) % 4])
-            }
-            if (currentTotalDist < minTotalDist) {
-                minTotalDist = currentTotalDist
-                bestOffset = offset
-            }
-        }
-        
-        return List(4) { i -> sortedTarget[(i + bestOffset) % 4] }
-    }
 }
 
-private fun sortPointsClockwise(points: List<Point>): List<Point> {
+/**
+ * Calculates the minimum distance between corners of two quads, 
+ * accounting for the 4 possible rotations.
+ */
+fun calculateCornerError(q1: List<Point>, q2: List<Point>): Double {
+    if (q1.size != 4 || q2.size != 4) return Double.MAX_VALUE
+    
+    val s1 = sortPointsClockwise(q1)
+    val s2 = sortPointsClockwise(q2)
+    
+    var minTotalDist = Double.MAX_VALUE
+    
+    for (offset in 0 until 4) {
+        var currentTotalDist = 0.0
+        for (i in 0 until 4) {
+            val p1 = s1[i]
+            val p2 = s2[(i + offset) % 4]
+            currentTotalDist += Math.sqrt(Math.pow(p1.x - p2.x, 2.0) + Math.pow(p1.y - p2.y, 2.0))
+        }
+        if (currentTotalDist < minTotalDist) {
+            minTotalDist = currentTotalDist
+        }
+    }
+    
+    return minTotalDist / 4.0 // Return average corner error
+}
+
+/**
+ * Rotates a sorted target quad to match the orientation of the current smoothed quad.
+ */
+fun matchRotation(sortedTarget: List<Point>, current: List<Point>): List<Point> {
+    var bestOffset = 0
+    var minTotalDist = Double.MAX_VALUE
+    
+    for (offset in 0 until 4) {
+        var currentTotalDist = 0.0
+        for (i in 0 until 4) {
+            val p1 = current[i]
+            val p2 = sortedTarget[(i + offset) % 4]
+            currentTotalDist += Math.sqrt(Math.pow(p1.x - p2.x, 2.0) + Math.pow(p1.y - p2.y, 2.0))
+        }
+        if (currentTotalDist < minTotalDist) {
+            minTotalDist = currentTotalDist
+            bestOffset = offset
+        }
+    }
+    
+    return List(4) { i -> sortedTarget[(i + bestOffset) % 4] }
+}
+
+/**
+ * Sorts four points in clockwise order starting from a consistent reference.
+ */
+fun sortPointsClockwise(points: List<Point>): List<Point> {
     if (points.size < 3) return points
     val sumX = points.sumOf { it.x }
     val sumY = points.sumOf { it.y }
@@ -120,59 +156,47 @@ private fun sortPointsClockwise(points: List<Point>): List<Point> {
     return points.sortedBy { Math.atan2(it.y - centerY, it.x - centerX) }
 }
 
-private fun dist(p1: Point, p2: Point): Double {
-    return Math.sqrt(Math.pow(p1.x - p2.x, 2.0) + Math.pow(p1.y - p2.y, 2.0))
-}
-
-private fun getCenter(quad: List<Point>): Point {
-    var sumX = 0.0
-    var sumY = 0.0
-    quad.forEach { sumX += it.x; sumY += it.y }
-    return Point(sumX / quad.size, sumY / quad.size)
-}
-
+/**
+ * Manages the persistent identity of cards across a temporal sequence of frames.
+ */
 class CardTracker {
     val activeCards = mutableListOf<TrackedCard>()
-    private val TRACKING_THRESHOLD_PX = 80.0 // Relaxed threshold for faster movement
+    private val CORNER_THRESHOLD_PX = 60.0 // Average distance per corner
     private val EXPIRY_MS = 600L 
-    private val MIN_FRAMES_FOR_UI = 1 // Show quads immediately
-    private val MIN_FRAMES_FOR_ID = 3 // Wait a bit before starting expensive ID
+    private val MIN_FRAMES_FOR_ID = 3 
     private val MAX_HISTORY = 5
 
     /**
-     * Update tracking with ONLY geometric detections (quads).
+     * Updates tracking state based on new geometric detections.
+     * Matches new quads to existing tracks using minimum corner error.
      */
     fun updateGeometric(detectedQuads: List<List<Point>>): List<TrackedCard> {
         val now = System.currentTimeMillis()
         val unmatchedQuads = detectedQuads.toMutableList()
         
-        // 1. Update existing tracks based on proximity
+        // 1. Update existing tracks based on corner error (more robust than center distance)
         activeCards.forEach { tracked ->
-            val trackedCenter = tracked.getCenter()
-            val match = unmatchedQuads.minByOrNull { quad -> 
-                dist(getCenter(quad), trackedCenter)
+            val bestMatch = unmatchedQuads.minByOrNull { quad -> 
+                calculateCornerError(quad, tracked.bounds)
             }
             
-            if (match != null && dist(getCenter(match), trackedCenter) < TRACKING_THRESHOLD_PX) {
+            if (bestMatch != null && calculateCornerError(bestMatch, tracked.bounds) < CORNER_THRESHOLD_PX) {
                 tracked.lastSeenTimestamp = now
                 tracked.framesSeen++
                 
-                // Track history BEFORE smoothing for accurate thrash measurement
-                tracked.boundsHistory.add(match.map { it.clone() })
+                tracked.boundsHistory.add(bestMatch.map { it.clone() })
                 if (tracked.boundsHistory.size > MAX_HISTORY) tracked.boundsHistory.removeAt(0)
                 tracked.updateThrashScore()
 
-                // High-quality smoothing with inertia - Target updated here, loop does the moving
-                tracked.bounds = match.map { it.clone() }
-                
-                unmatchedQuads.remove(match)
+                tracked.bounds = bestMatch.map { it.clone() }
+                unmatchedQuads.remove(bestMatch)
             }
         }
 
         // 2. Remove expired tracks
         activeCards.removeAll { now - it.lastSeenTimestamp > EXPIRY_MS }
 
-        // 3. Add new detections as potential tracks
+        // 3. Add new detections
         unmatchedQuads.forEach { bounds ->
             val newCard = TrackedCard(bounds = bounds)
             newCard.boundsHistory.add(bounds.map { it.clone() })
@@ -183,7 +207,7 @@ class CardTracker {
     }
 
     /**
-     * Finds tracked cards that need identification (unidentified or stale).
+     * Identifies which tracked cards are eligible for ML identification.
      */
     fun getCardsForIdentification(): List<TrackedCard> {
         val now = System.currentTimeMillis()
@@ -194,24 +218,12 @@ class CardTracker {
     }
 
     /**
-     * Update a specific track with identified card data.
-     * Passing null clears the identity (e.g. if the object is no longer seen as a card).
+     * Assigns a physical SetCard identity to a temporal track.
      */
     fun updateIdentification(id: String, identifiedCard: SetCard?) {
         activeCards.find { it.id == id }?.apply {
             card = identifiedCard
             lastIdentifiedTimestamp = System.currentTimeMillis()
         }
-    }
-
-    private fun getCenter(bounds: List<Point>): Point {
-        var sumX = 0.0
-        var sumY = 0.0
-        bounds.forEach { sumX += it.x; sumY += it.y }
-        return Point(sumX / bounds.size, sumY / bounds.size)
-    }
-
-    private fun dist(p1: Point, p2: Point): Double {
-        return Math.sqrt(Math.pow(p1.x - p2.x, 2.0) + Math.pow(p1.y - p2.y, 2.0))
     }
 }

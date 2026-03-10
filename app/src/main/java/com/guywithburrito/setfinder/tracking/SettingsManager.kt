@@ -64,4 +64,8 @@ class SettingsManager(context: Context) {
     var arMode: Boolean
         get() = prefs.getBoolean("ar_mode", false)
         set(value) = prefs.edit().putBoolean("ar_mode", value).apply()
+
+    var singleCardMode: Boolean
+        get() = prefs.getBoolean("single_card_mode", false)
+        set(value) = prefs.edit().putBoolean("single_card_mode", value).apply()
 }

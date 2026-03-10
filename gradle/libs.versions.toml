@@ -21,6 +21,7 @@ gson = "2.10.1"
 robolectric = "4.11.1"
 mockito = "5.11.0"
 mockito-kotlin = "5.2.1"
+kotlinx-coroutines = "1.7.3"
 arcore = "1.41.0"
 sceneview = "2.2.1"
 
@@ -58,6 +59,7 @@ gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
 mockito-kotlin = { module = "org.mockito.kotlin:mockito-kotlin", version.ref = "mockito-kotlin" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
 
 junit = { module = "junit:junit", version.ref = "junit" }
 

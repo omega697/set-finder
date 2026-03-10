@@ -1,6 +1,5 @@
 package com.guywithburrito.setfinder.ui
 
-import android.content.Context
 import android.util.Log
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -12,7 +11,6 @@ import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -23,15 +21,14 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.guywithburrito.setfinder.SetAnalyzer
-import com.guywithburrito.setfinder.tracking.TrackedCard
+import com.guywithburrito.setfinder.CardVisionAnalyzer
+import com.guywithburrito.setfinder.CardDetector
+import com.guywithburrito.setfinder.cv.OpenCVQuadFinder
+import com.guywithburrito.setfinder.tracking.SettingsManager
 import org.opencv.core.Point
 import java.util.concurrent.Executors
-import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 import android.graphics.Paint
 import android.graphics.Typeface
-import androidx.compose.ui.text.font.FontWeight
 
 @Composable
 fun SetFinderView(
@@ -39,22 +36,24 @@ fun SetFinderView(
     onHistoryClicked: () -> Unit = {}
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
-    val settingsManager = remember { com.guywithburrito.setfinder.tracking.SettingsManager(context) }
-    val setAnalyzer = remember { SetAnalyzer(context, coroutineScope, settingsManager) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    
+    val settingsManager = remember { SettingsManager(context) }
+    val cardDetector = remember { 
+        CardDetector(
+            context = context,
+            scope = coroutineScope,
+            finder = OpenCVQuadFinder()
+        )
+    }
+    val setAnalyzer = remember { CardVisionAnalyzer(cardDetector, settingsManager, coroutineScope) }
     val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
 
     var sensitivity by remember { mutableFloatStateOf(settingsManager.sensitivity) }
     var showLabels by remember { mutableStateOf(settingsManager.showLabels) }
     var showDebug by remember { mutableStateOf(false) }
-    var singleCardMode by remember { mutableStateOf(false) }
-
-    LaunchedEffect(showDebug, singleCardMode, showLabels) {
-        setAnalyzer.debugMode = showDebug
-        setAnalyzer.singleCardMode = singleCardMode
-        setAnalyzer.showLabels = showLabels
-    }
+    var singleCardMode by remember { mutableStateOf(settingsManager.singleCardMode) }
 
     val textPaint = remember {
         Paint().apply {
@@ -66,7 +65,6 @@ fun SetFinderView(
     }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colors.background)) {
-        // Top: Scanning Window
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             AndroidView(
                 factory = { ctx ->
@@ -108,8 +106,8 @@ fun SetFinderView(
             )
 
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val imgWidth = setAnalyzer.analysisWidth.toFloat()
-                val imgHeight = setAnalyzer.analysisHeight.toFloat()
+                val imgWidth = cardDetector.analysisWidth
+                val imgHeight = cardDetector.analysisHeight
                 if (imgWidth <= 1f || imgHeight <= 1f) return@Canvas
 
                 val scale = Math.min(size.width / imgWidth, size.height / imgHeight)
@@ -118,22 +116,8 @@ fun SetFinderView(
                 
                 fun Point.toOffset() = Offset((x.toFloat() * scale) + offsetX, (y.toFloat() * scale) + offsetY)
 
-                // Debug Candidates
-                if (showDebug) {
-                    setAnalyzer.allCandidates.forEach { points ->
-                        for (i in 0 until points.size) {
-                            drawLine(
-                                color = Color.Red.copy(alpha = 0.3f),
-                                start = points[i].toOffset(),
-                                end = points[(i + 1) % points.size].toOffset(),
-                                strokeWidth = 1f
-                            )
-                        }
-                    }
-                }
-
                 // Tracked Cards
-                setAnalyzer.detectedRects.forEach { card ->
+                cardDetector.trackedCards.forEach { card ->
                     if (showDebug || card.card != null) {
                         val points = if (showDebug) card.bounds else card.smoothedBounds
                         for (i in 0 until points.size) {
@@ -145,30 +129,24 @@ fun SetFinderView(
                             )
                         }
 
-                    if (showLabels || showDebug) {
-                        // Use center of the points we are actually drawing
-                        var sumX = 0.0; var sumY = 0.0
-                        points.forEach { sumX += it.x; sumY += it.y }
-                        val center = Offset((sumX.toFloat() / points.size * scale) + offsetX, (sumY.toFloat() / points.size * scale) + offsetY)
-                        
-                        card.card?.let { identified ->
-                            drawContext.canvas.nativeCanvas.drawText("${identified.count} ${identified.color}", center.x - 60f, center.y, textPaint)
-                            drawContext.canvas.nativeCanvas.drawText("${identified.pattern} ${identified.shape}", center.x - 60f, center.y + 40f, textPaint)
+                        if (showLabels || showDebug) {
+                            var sumX = 0.0; var sumY = 0.0
+                            points.forEach { sumX += it.x; sumY += it.y }
+                            val center = Offset((sumX.toFloat() / points.size * scale) + offsetX, (sumY.toFloat() / points.size * scale) + offsetY)
+                            
+                            card.card?.let { identified ->
+                                drawContext.canvas.nativeCanvas.drawText("${identified.count} ${identified.color}", center.x - 60f, center.y, textPaint)
+                                drawContext.canvas.nativeCanvas.drawText("${identified.pattern} ${identified.shape}", center.x - 60f, center.y + 40f, textPaint)
+                            }
                         }
-                        
-                        if (showDebug) {
-                            drawContext.canvas.nativeCanvas.drawText("thrash: %.2f".format(card.thrashScore), center.x - 60f, center.y - 40f, textPaint)
-                        }
-                    }
                     }
                 }
 
                 // Sets
-                setAnalyzer.foundSets.forEachIndexed { idx, set ->
+                cardDetector.foundSets.forEachIndexed { idx, set ->
                     val colors = settingsManager.highlightColors.map { it.second }
                     val color = if (colors.isNotEmpty()) colors[idx % colors.size] else Color.Green
                     set.forEach { card ->
-                        // Use smoothed bounds for the SET highlight lines as well
                         val setPoints = if (showDebug) card.bounds else card.smoothedBounds
                         for (i in 0 until setPoints.size) {
                             drawLine(
@@ -190,11 +168,7 @@ fun SetFinderView(
         }
 
         // Bottom: Controls
-        Surface(
-            elevation = 8.dp,
-            color = MaterialTheme.colors.surface,
-            contentColor = MaterialTheme.colors.onSurface
-        ) {
+        Surface(elevation = 8.dp, color = MaterialTheme.colors.surface) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -210,7 +184,10 @@ fun SetFinderView(
                     ControlToggle(
                         icon = Icons.Default.CropPortrait,
                         isActive = singleCardMode,
-                        onClick = { singleCardMode = !singleCardMode },
+                        onClick = { 
+                            singleCardMode = !singleCardMode
+                            settingsManager.singleCardMode = singleCardMode
+                        },
                         label = "Single"
                     )
                     ControlToggle(
@@ -235,9 +212,7 @@ fun SetFinderView(
                         }
                     }
                 }
-
                 Spacer(modifier = Modifier.height(16.dp))
-                
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Sensitivity", style = MaterialTheme.typography.body2, modifier = Modifier.width(80.dp))
                     Slider(
@@ -268,11 +243,7 @@ fun ControlToggle(
                 contentDescription = label,
                 tint = if (isActive) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
             )
-            Text(
-                label,
-                style = MaterialTheme.typography.caption,
-                color = if (isActive) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
-            )
+            Text(label, style = MaterialTheme.typography.caption, color = if (isActive) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface.copy(alpha = 0.6f))
         }
     }
 }

@@ -3,7 +3,7 @@ package com.guywithburrito.setfinder.cv
 import org.opencv.core.*
 
 /**
- * Interface for all OpenCV operations used by SetAnalyzer.
+ * Interface for all OpenCV operations used by CardVisionAnalyzer.
  * This allows for 100% JVM-only testing with mocks.
  */
 interface FrameProcessor {
