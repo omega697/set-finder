@@ -120,13 +120,13 @@ class SetAnalyzer(
     }
 
     fun analyzeMat(frame: Mat) {
-        analysisWidth = frame.cols().toFloat()
-        analysisHeight = frame.rows().toFloat()
-        
         val maxDim = 1000.0
         val scale = maxDim / Math.max(frame.cols().toDouble(), frame.rows().toDouble())
         val analysisFrame = frameProcessor.createMat()
         frameProcessor.resize(frame, analysisFrame, Size(), scale, scale, Imgproc.INTER_AREA)
+
+        analysisWidth = analysisFrame.cols().toFloat()
+        analysisHeight = analysisFrame.rows().toFloat()
         
         var quads = finder.findLikelyCards(analysisFrame)
         

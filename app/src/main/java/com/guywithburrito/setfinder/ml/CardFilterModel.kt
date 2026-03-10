@@ -10,9 +10,10 @@ import java.nio.ByteBuffer
  */
 interface CardFilterModel {
     /**
-     * Returns the confidence (0.0 to 1.0) that the provided chip is a Set card.
+     * Executes inference on the provided ByteBuffer (preprocessed image).
+     * Returns a map of head index to raw FloatArray probabilities.
      */
-    fun getConfidence(buffer: ByteBuffer): Float
+    fun predict(buffer: ByteBuffer): Map<Int, FloatArray>
     
     fun close()
 }
@@ -26,18 +27,22 @@ class TFLiteCardFilterModel(
 ) : CardFilterModel {
     private val interpreter: Interpreter = Interpreter(FileUtil.loadMappedFile(context, modelPath))
 
-    init {
-        val input = interpreter.getInputTensor(0)
-        android.util.Log.d("CardFilterModel", "Model expected input: shape=${input.shape().contentToString()}, type=${input.dataType()}")
-    }
-
-    override fun getConfidence(buffer: ByteBuffer): Float {
+    override fun predict(buffer: ByteBuffer): Map<Int, FloatArray> {
         buffer.rewind()
-        val output = Array(1) { FloatArray(1) }
-        interpreter.run(buffer, output)
-        val conf = output[0][0]
-        android.util.Log.d("CardFilterModel", "Inference: confidence=$conf")
-        return conf
+        val outputs = mutableMapOf<Int, Any>()
+        
+        for (i in 0 until interpreter.outputTensorCount) {
+            val shape = interpreter.getOutputTensor(i).shape()
+            outputs[i] = Array(1) { FloatArray(shape.last()) }
+        }
+
+        interpreter.runForMultipleInputsOutputs(arrayOf(buffer), outputs)
+
+        val results = mutableMapOf<Int, FloatArray>()
+        for (i in 0 until interpreter.outputTensorCount) {
+            results[i] = (outputs[i] as Array<FloatArray>)[0]
+        }
+        return results
     }
 
     override fun close() {

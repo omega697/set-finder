@@ -14,7 +14,7 @@ import org.tensorflow.lite.support.common.ops.NormalizeOp
  */
 interface CardExpert {
     /**
-     * Identifies the attributes of a 144x224 card chip.
+     * Identifies the attributes of a card chip.
      */
     fun identify(chip: Bitmap): SetCard?
     
@@ -23,10 +23,10 @@ interface CardExpert {
     companion object {
         /**
          * Factory method to get the default implementation.
-         * Implementation details like model path and mapper version are hidden here.
          */
         fun getInstance(context: Context): CardExpert {
-            return TFLiteCardExpert(TFLiteExpertModel(context, "set_card_model_final.tflite"), CardModelMapper.V12)
+            // Using v13 model and mapper. The robust mapping logic is inside CardModelMapper.
+            return TFLiteCardExpert(TFLiteExpertModel(context, "attribute_expert_v13.tflite"), CardModelMapper.V13)
         }
     }
 }
@@ -48,15 +48,11 @@ class TFLiteCardExpert(
         tensorImage.load(chip)
         tensorImage = imageProcessor.process(tensorImage)
         
+        // Inference returns a Map<Int, FloatArray> of indexed heads
         val predictions = model.predict(tensorImage.buffer)
         
-        // Mappings based on model version (defaults to v12 logic)
-        val colIdx = mapper.argmax(predictions[0]!!)
-        val cntIdx = mapper.argmax(predictions[1]!!)
-        val patIdx = mapper.argmax(predictions[2]!!)
-        val shpIdx = mapper.argmax(predictions[3]!!)
-        
-        return mapper.mapIndices(colIdx, shpIdx, cntIdx, patIdx)
+        // The mapper handles the knowledge of which index maps to which trait
+        return mapper.mapPredictions(predictions)
     }
 
     override fun close() {

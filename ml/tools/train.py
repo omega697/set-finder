@@ -131,15 +131,14 @@ def build_model(output_type='filter'):
         layer.trainable = False
         
     inputs = layers.Input(shape=(*IMG_SIZE, 3))
-    x = layers.RandomFlip("horizontal_and_vertical")(inputs)
-    x = layers.RandomRotation(0.1)(x)
+    x = layers.RandomRotation(0.5)(inputs)
     
     x = base(x)
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dropout(0.3)(x)
     
     if output_type == 'filter':
-        outputs = layers.Dense(1, activation='sigmoid')(x)
+        outputs = layers.Dense(1, activation='sigmoid', name='filter_out')(x)
         model = models.Model(inputs, outputs)
         model.compile(optimizer=tf.keras.optimizers.Adam(1e-4), loss='binary_crossentropy', metrics=['accuracy'])
     else:

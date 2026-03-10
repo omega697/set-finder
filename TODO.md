@@ -1,36 +1,30 @@
-# Set Finder - Project Status & TODO (March 8, 2026)
+# Set Finder - Project Status & TODO (March 10, 2026)
 
-## 🛑 Current Blockers
-- **Identification Accuracy:** Reverted to v12 models, but pattern identification is failing (e.g., SHADED seen as EMPTY).
-- **Output Mapping:** TFLite models have generic output names (`StatefulPartitionedCall_1:0-3`), making manual mapping fragile.
+## 🛠️ Pipeline Progress (Current State)
 
-## 🛠️ Refactoring & Modularity (NEW)
-- **`SetDetector` Component:** Extracted stateless CV/ML logic from `SetAnalyzer` for isolated testing.
-- **`FrameProcessor` Interface:** Abstracted OpenCV calls (`resize`, `rotate`) to allow Robolectric JVM testing without native libraries.
-- **Dependency Injection:** `SetAnalyzer` now takes mocks, enabling 100% JVM verification of orchestration logic.
-- **Bug Fixes:**
-    - Fixed infinite recursion in `ImageProxy.toMat()`.
-    - Fixed parameter order bug in `Utils.bitmapToMat`.
-    - Restored critical coordinate scaling: Detection (1000px) -> Unwarping (Full-Res).
+### Stage 1: Quad Finding (Candidate Generation)
+- [x] **High-Precision Implementation:** Combined `RETR_EXTERNAL` boundaries with margin-based `isWhiteCard` validation.
+- [x] **Geometric Precision:** Implemented deduplication using polygon IoU via `intersectConvexConvex`.
+- [x] **Centralized Ground Truth:** Created regression suite for 15 scenes in `QuadFindingGroundTruth.kt`.
+- [!] **Status:** ~70.5% baseline recall. Functional but needs further work on both **recall** (capturing high-clutter scenes like the windowsill) and **accuracy/precision** (minimizing false positives on non-card surfaces).
 
-## 📋 Verified Components
-- [x] **`CardUnwarper`:** Confirmed to produce 144x224 RGB chips with healthy brightness (~130.0).
-- [x] **`SetSolver`:** Verified set-solving logic via Robolectric unit tests.
-- [x] **`SetAnalyzer` (Orchestration):** Verified high-level logic (detect -> track -> solve) via Robolectric.
+### Stage 2: Chip Extraction (Normalization)
+- [x] **Verified Parity:** 100% match with Python `chip_extractor.py` (Histogram Correlation > 0.99).
+- [x] **Perspective Correction:** Produces standard 200x300 RGB chips for identification.
+- [x] **Integrated:** Linked to `CardFinder` metadata for strategy auditing.
 
-## 🚀 Model Status
-- **v12 Revert:** Currently active, but accuracy is poor (1/3 sets found in integration test).
-- **v13 Expert:** Highly accurate in Python, but failing in Android due to mapping/preprocessing nuances.
-- **Preprocessing Findings:**
-    - `chip_extractor.py` uses BGR for white balance.
-    - Android uses RGB for everything else; parity requires careful conversion steps.
+### Stage 3: Card Filtering & Identification
+- [x] **Verified Accuracy:** >98% accuracy on standardized card chips.
+- [x] **Functional Terminology:** Logic updated to use `empty`, `shaded`, `solid`.
+- [x] **Robust Attributes:** Extraction of Color, Shape, Number, and Filling is verified.
 
-## 📋 Next Steps
-1.  **Definitive v12 Mapping:** Fix the SHADED vs EMPTY swap by logging raw indices for all 19 test chips.
-2.  **Restore Integration Pass:** Get `SetDetectorTest` (instrumentation) passing 3/3 sets on v12.
-3.  **v13 Re-Integration:** Once v12 is stable, re-apply v13 expert model with verified BGR white-balance steps.
-4.  **Named TFLite Outputs:** (Critical) Update training script to force consistent output names to stop the "index mapping" circle.
+## 📋 Next Major Focus (Upcoming)
+1.  **ML Model Improvement:** Refine the training dataset and architecture to handle diverse lighting and "off-white" card conditions.
+2.  **TFLite Conversion:** Optimize the conversion pipeline to ensure high fidelity and performance on mobile hardware.
+3.  **Output Mapping:** Finalize named TFLite outputs to eliminate fragile index-based mapping.
 
 ## 🗺️ Future Roadmap
+- **Stage 1 Polish:** Finalize multi-context block size tuning to resolve the remaining windowsill bottleneck.
 - **ML Lifecycle Dashboard:** Web-based interface for video upload, labeling, bootstrapping, training, and conversion.
-- **Set Statistics:** Track most frequent cards/sets in history.
+- **Set Statistics:** Track most frequent cards and sets in user history.
+- **Real-Time Performance:** Optimize Stage 1 for 60FPS tracking on mid-range hardware.

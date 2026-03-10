@@ -13,7 +13,7 @@ import org.tensorflow.lite.support.common.ops.NormalizeOp
  */
 interface CardFilter {
     /**
-     * Returns true if the provided 144x224 chip is likely a Set card.
+     * Returns true if the provided chip is likely a Set card.
      */
     fun isCard(chip: Bitmap): Boolean
     
@@ -22,10 +22,10 @@ interface CardFilter {
     companion object {
         /**
          * Factory method to get the default implementation.
-         * Implementation details like threshold and model path are hidden here.
          */
         fun getInstance(context: Context): CardFilter {
-            return TFLiteCardFilter(TFLiteCardFilterModel(context, "card_filter.tflite"), threshold = 0.1f)
+            // Using v13 model and setting a robust threshold
+            return TFLiteCardFilter(TFLiteCardFilterModel(context, "card_filter_v13.tflite"), threshold = 0.5f)
         }
     }
 }
@@ -47,7 +47,12 @@ class TFLiteCardFilter(
         tensorImage.load(chip)
         tensorImage = imageProcessor.process(tensorImage)
         
-        return model.getConfidence(tensorImage.buffer) >= threshold
+        val predictions = model.predict(tensorImage.buffer)
+        
+        // For the binary filter, index 0 is guaranteed to be the confidence output
+        val confidence = predictions[0]?.get(0) ?: 0f
+            
+        return confidence >= threshold
     }
 
     override fun close() {

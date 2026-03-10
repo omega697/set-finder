@@ -38,7 +38,8 @@ class PipelineStepTest {
         val extractor = ChipExtractor()
         val identifier = CardIdentifier.getInstance(appContext)
         
-        val mat = loadFullFrame("cards/card_1_green_shaded_diamond.jpg")
+        // Use renamed asset in scenes folder
+        val mat = loadFullFrame("scenes/scene_two_green_shaded_diamond.jpg")
         val scale = 1000.0 / Math.max(mat.cols().toDouble(), mat.rows().toDouble())
         val small = Mat()
         Imgproc.resize(mat, small, Size(), scale, scale, Imgproc.INTER_AREA)
@@ -55,6 +56,7 @@ class PipelineStepTest {
         }
 
         assertThat(results).isNotEmpty()
+        // Ensure color is correctly identified (GREEN)
         assertThat(results[0].color).isEqualTo(SetCard.Color.GREEN)
         
         identifier.close()

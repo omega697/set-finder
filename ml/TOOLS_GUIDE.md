@@ -61,13 +61,22 @@ To train both the **Card Filter** (Is it a card?) and **Attribute Expert** (What
 ```bash
 python tools/train.py --epochs 10 --filter-model card_filter_v13.keras --expert-model attribute_expert_v13.keras
 ```
-*Note: Training will automatically use available GPUs.*
+*Note: Training uses squiggle-safe augmentation (rotation only, no flipping) and includes brightness/contrast variations for lighting robustness.*
 
 ### 2. Convert to TFLite
-The Android app requires models in `.tflite` format:
+The Android app requires models in `.tflite` format. Our converter uses a specialized process to ensure models are reliable and easy to use:
+
+*   **Stripping "Training Wheels":** The script creates an inference-only wrapper (`training=False`). This bypasses layers like `RandomRotation` and `Dropout` that are only needed during training, which prevents conversion errors and runtime crashes in the app.
+*   **Stable Output Order:** The converter preserves the order of outputs defined in the Keras model. For the Attribute Expert, this order is: 
+    - **Index 0:** Count
+    - **Index 1:** Shape
+    - **Index 2:** Color
+    - **Index 3:** Pattern
+*   **Android Mapping:** The `CardModelMapper` class in the Android app is configured to match this stable order.
+
 ```bash
-python tools/convert_to_tflite.py --keras-model card_filter_v13.keras --tflite-model card_filter_v13.tflite
-python tools/convert_to_tflite.py --keras-model attribute_expert_v13.keras --tflite-model attribute_expert_v13.tflite
+python tools/convert_to_tflite.py --input card_filter_v13.keras --output card_filter_v13.tflite
+python tools/convert_to_tflite.py --input attribute_expert_v13.keras --output attribute_expert_v13.tflite
 ```
 
 ## 🛠️ Utility Tools

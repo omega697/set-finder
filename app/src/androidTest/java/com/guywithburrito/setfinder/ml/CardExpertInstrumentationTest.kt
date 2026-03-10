@@ -7,26 +7,23 @@ import com.guywithburrito.setfinder.SetCardTestUtils
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.tensorflow.lite.support.image.ImageProcessor
-import org.tensorflow.lite.support.image.TensorImage
-import org.tensorflow.lite.support.image.ops.ResizeOp
-import org.tensorflow.lite.support.common.ops.NormalizeOp
 import java.lang.StringBuilder
 
+/**
+ * Instrumented test for Stage 3 (Card Identification).
+ * Uses the production CardExpert factory to ensure verification stays in sync with app logic.
+ * This test is comprehensive and uses all meticulously arranged test chips in assets/chips/cards.
+ */
 @RunWith(AndroidJUnit4::class)
-class CardExpertModelInstrumentationTest {
-
-    private val imageProcessor = ImageProcessor.Builder()
-        .add(ResizeOp(224, 224, ResizeOp.ResizeMethod.BILINEAR))
-        .add(NormalizeOp(127.5f, 127.5f))
-        .build()
+class CardExpertInstrumentationTest {
 
     @Test
-    fun predict_isAccurateForAllTestChips() {
+    fun identify_isAccurateForAllTestChips() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         val testContext = InstrumentationRegistry.getInstrumentation().context
         
-        val expert = TFLiteExpertModel(appContext)
+        // Always test the production default as configured in the factory
+        val expert = CardExpert.getInstance(appContext)
         val assets = testContext.assets.list("chips/cards") ?: emptyArray()
         
         val failureSummary = StringBuilder()
@@ -40,21 +37,12 @@ class CardExpertModelInstrumentationTest {
             val inputStream = testContext.assets.open("chips/cards/$assetName")
             val bitmap = BitmapFactory.decodeStream(inputStream)
             
-            var tensorImage = TensorImage(org.tensorflow.lite.DataType.FLOAT32)
-            tensorImage.load(bitmap)
-            tensorImage = imageProcessor.process(tensorImage)
-            
-            val predictions = expert.predict(tensorImage.buffer)
-            
-            // v12 Mappings: Col=0, Shp=1, Cnt=2, Pat=3
-            val colIdx = argmax(predictions[0]!!)
-            val shpIdx = argmax(predictions[1]!!)
-            val cntIdx = argmax(predictions[2]!!)
-            val patIdx = argmax(predictions[3]!!)
+            // Test the high-level identify API - exactly as the app uses it
+            val actualCard = expert.identify(bitmap)
             
             val expectedCard = SetCardTestUtils.parseLabelFromFilename(assetName)
             val expectedStr = expectedCard?.let { SetCardTestUtils.formatLabel(it) } ?: "???"
-            val actualStr = mapToLabel(colIdx, shpIdx, cntIdx, patIdx)
+            val actualStr = actualCard?.let { SetCardTestUtils.formatLabel(it) } ?: "NULL"
             
             if (actualStr == expectedStr) {
                 passed++
@@ -68,26 +56,11 @@ class CardExpertModelInstrumentationTest {
         val accuracy = if (tested > 0) (passed.toFloat() / tested) else 1f
         android.util.Log.d("CardExpertTest", String.format("Accuracy: %.2f%% (%d/%d)", accuracy * 100, passed, tested))
         
-        // We expect at least 98% accuracy on this robust set
+        // We expect at least 98% accuracy on this verified set of chips
         if (accuracy < 0.98f) {
             val msg = String.format("Expert model accuracy too low: %.2f%% (%d/%d passed). Failures:\n%s", 
                                    accuracy * 100, passed, tested, failureSummary.toString())
             throw AssertionError(msg)
         }
-    }
-
-    private fun argmax(scores: FloatArray): Int {
-        var bestIdx = 0; var maxVal = -1f
-        for (i in scores.indices) { if (scores[i] > maxVal) { maxVal = scores[i]; bestIdx = i } }
-        return bestIdx
-    }
-
-    private fun mapToLabel(colIdx: Int, shpIdx: Int, cntIdx: Int, patIdx: Int): String {
-        val colors = listOf("NONE", "RED", "GREEN", "PURPLE")
-        val shapes = listOf("NONE", "OVAL", "DIAMOND", "SQUIGGLE")
-        val counts = listOf("NONE", "ONE", "TWO", "THREE")
-        val patterns = listOf("NONE", "SOLID", "SHADED", "EMPTY")
-        
-        return "${counts.getOrElse(cntIdx){"?"}} ${colors.getOrElse(colIdx){"?"}} ${patterns.getOrElse(patIdx){"?"}} ${shapes.getOrElse(shpIdx){"?"}}"
     }
 }
