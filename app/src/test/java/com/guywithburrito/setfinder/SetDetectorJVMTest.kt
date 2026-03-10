@@ -1,8 +1,9 @@
 package com.guywithburrito.setfinder
 
+import android.graphics.Bitmap
 import com.guywithburrito.setfinder.card.SetCard
 import com.guywithburrito.setfinder.cv.CardFinder
-import com.guywithburrito.setfinder.cv.CardUnwarper
+import com.guywithburrito.setfinder.cv.ChipExtractor
 import com.guywithburrito.setfinder.cv.FrameProcessor
 import com.guywithburrito.setfinder.ml.CardIdentifier
 import com.google.common.truth.Truth.assertThat
@@ -12,7 +13,6 @@ import org.robolectric.RobolectricTestRunner
 import org.mockito.kotlin.*
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint2f
-import org.opencv.core.Point
 
 @RunWith(RobolectricTestRunner::class)
 class SetDetectorJVMTest {
@@ -20,14 +20,13 @@ class SetDetectorJVMTest {
     @Test
     fun detectSets_orchestratesFullPipeline() {
         val mockFinder: CardFinder = mock()
-        val mockUnwarper: CardUnwarper = mock()
+        val mockExtractor: ChipExtractor = mock()
         val mockIdentifier: CardIdentifier = mock()
         val mockProcessor: FrameProcessor = mock()
         
         whenever(mockProcessor.createMat()).thenReturn(mock())
         
-        // Spy on detector to mock internal identifyQuads call (which uses native Mat logic)
-        val detector = spy(SetDetector(mockFinder, mockUnwarper, mockIdentifier, mockProcessor))
+        val detector = SetDetector(mockFinder, mockExtractor, mockIdentifier, mockProcessor)
         
         val frame: Mat = mock()
         whenever(frame.cols()).thenReturn(1000)
@@ -37,16 +36,21 @@ class SetDetectorJVMTest {
         val mockQuad: MatOfPoint2f = mock()
         whenever(mockFinder.findLikelyCards(any())).thenReturn(listOf(mockQuad))
         
-        // 2. Mock Identification (Directly mock the internal call to avoid native code)
-        val card = SetCard(SetCard.Shape.OVAL, SetCard.Pattern.SOLID, SetCard.Count.ONE, SetCard.Color.RED)
-        doReturn(listOf(card)).whenever(detector).identifyQuads(any(), any(), any())
+        // 2. Mock Extraction
+        val mockBitmap: Bitmap = mock()
+        whenever(mockExtractor.extract(eq(frame), any())).thenReturn(mockBitmap)
         
-        // 3. Execute
+        // 3. Mock Identification
+        val card = SetCard(SetCard.Shape.OVAL, SetCard.Pattern.SOLID, SetCard.Count.ONE, SetCard.Color.RED)
+        whenever(mockIdentifier.identifyCard(any())).thenReturn(card)
+        
+        // Execute
         detector.detectSets(frame)
         
         // Verify Interactions
         verify(mockFinder).findLikelyCards(any())
-        verify(detector).identifyQuads(any(), any(), any())
+        verify(mockExtractor).extract(eq(frame), any())
+        verify(mockIdentifier).identifyCard(any())
     }
 
     @Test

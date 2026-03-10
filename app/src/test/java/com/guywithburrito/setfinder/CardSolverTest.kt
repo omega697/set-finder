@@ -2,8 +2,8 @@ package com.guywithburrito.setfinder
 
 import com.guywithburrito.setfinder.card.SetCard
 import com.guywithburrito.setfinder.cv.CardFinder
-import com.guywithburrito.setfinder.cv.CardUnwarper
-import com.guywithburrito.setfinder.ml.TFLiteCardIdentifier
+import com.guywithburrito.setfinder.cv.ChipExtractor
+import com.guywithburrito.setfinder.ml.CardIdentifier
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,10 +25,10 @@ class CardSolverTest {
     @Test
     fun findSets_detectsCorrectSets() {
         val mockFinder: CardFinder = mock()
-        val mockUnwarper: CardUnwarper = mock()
-        val mockIdentifier: TFLiteCardIdentifier = mock()
+        val mockExtractor: ChipExtractor = mock()
+        val mockIdentifier: CardIdentifier = mock()
         
-        val detector = SetDetector(mockFinder, mockUnwarper, mockIdentifier)
+        val detector = SetDetector(mockFinder, mockExtractor, mockIdentifier)
         
         val c1 = SetCard(SetCard.Shape.DIAMOND, SetCard.Pattern.SOLID, SetCard.Count.ONE, SetCard.Color.RED)
         val c2 = SetCard(SetCard.Shape.DIAMOND, SetCard.Pattern.SOLID, SetCard.Count.TWO, SetCard.Color.RED)
