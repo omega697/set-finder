@@ -26,7 +26,7 @@ class CardUnwarperTest {
         val context = InstrumentationRegistry.getInstrumentation().context
         
         // 1. Load sample frame
-        val inputStream = context.assets.open("cards_12_3_sets.jpg")
+        val inputStream = context.assets.open("scenes/cards_12_3_sets.jpg")
         val bitmap = BitmapFactory.decodeStream(inputStream)
         val frameRGB = Mat()
         Utils.bitmapToMat(bitmap, frameRGB)

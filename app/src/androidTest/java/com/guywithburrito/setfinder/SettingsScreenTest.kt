@@ -1,8 +1,7 @@
 package com.guywithburrito.setfinder
 
+import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
 import com.guywithburrito.setfinder.ui.SettingsScreen
 import com.guywithburrito.setfinder.ui.SetFinderTheme
 import org.junit.Rule
@@ -14,23 +13,33 @@ class SettingsScreenTest {
     val composeTestRule = createComposeRule()
 
     @Test
-    fun settingsScreen_reorderColors() {
+    fun settingsScreen_dragToReorder() {
         composeTestRule.setContent {
             SetFinderTheme {
                 SettingsScreen(onBackClicked = {})
             }
         }
 
-        // Verify initial order (partial check)
+        // Verify initial presence of color items
         composeTestRule.onNodeWithText("Green").assertExists()
         composeTestRule.onNodeWithText("Cyan").assertExists()
 
-        // Find the "down" arrow for Green and click it
-        // Since we have multiple "↓", we might need more specific selectors if this fails,
-        // but for a simple list, it should be the first one.
-        composeTestRule.onNodeWithText("↓").performClick()
+        // Perform a drag-and-drop reordering gesture.
+        // We find the handle for "Green" and drag it down past "Cyan".
+        composeTestRule.onNodeWithContentDescription("Reorder Green")
+            .performTouchInput {
+                // down -> advanceEventTime is the standard way to trigger long-press in tests
+                down(center)
+                advanceEventTime(viewConfiguration.longPressTimeoutMillis + 100)
+                
+                // Move down past the next item
+                moveBy(androidx.compose.ui.geometry.Offset(0f, 300f))
+                
+                // Finalize the gesture
+                up()
+            }
 
-        // After clicking down on Green, it should still exist (this is a simple functional test)
+        // Verify "Green" still exists after reorder (functional check)
         composeTestRule.onNodeWithText("Green").assertExists()
     }
 }

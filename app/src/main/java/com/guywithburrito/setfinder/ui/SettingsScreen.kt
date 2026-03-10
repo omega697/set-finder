@@ -1,9 +1,13 @@
 package com.guywithburrito.setfinder.ui
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -11,16 +15,15 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.draw.rotate
-import com.guywithburrito.setfinder.tracking.SettingsManager
-
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.guywithburrito.setfinder.tracking.SettingsManager
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(onBackClicked: () -> Unit) {
@@ -31,9 +34,11 @@ fun SettingsScreen(onBackClicked: () -> Unit) {
     var showLabels by remember { mutableStateOf(settingsManager.showLabels) }
     var arMode by remember { mutableStateOf(settingsManager.arMode) }
 
-    // State for drag and drop
+    val scope = rememberCoroutineScope()
+    val lazyListState = rememberLazyListState()
     var draggedIndex by remember { mutableStateOf<Int?>(null) }
     var draggingOffset by remember { mutableFloatStateOf(0f) }
+    var autoscrollJob by remember { mutableStateOf<Job?>(null) }
 
     Scaffold(
         topBar = {
@@ -66,40 +71,60 @@ fun SettingsScreen(onBackClicked: () -> Unit) {
             
             Card(
                 elevation = 2.dp,
+                shape = RoundedCornerShape(8.dp),
                 backgroundColor = MaterialTheme.colors.surface,
                 contentColor = MaterialTheme.colors.onSurface
             ) {
-                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     itemsIndexed(highlightColors, key = { _, item -> item.first }) { index, item ->
                         val isDragging = draggedIndex == index
-                        
+                        val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp)
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(56.dp)
                                 .zIndex(if (isDragging) 1f else 0f)
+                                .shadow(elevation)
+                                .background(if (isDragging) MaterialTheme.colors.surface else Color.Transparent)
                                 .offset(y = if (isDragging) draggingOffset.dp else 0.dp)
-                                .background(if (isDragging) MaterialTheme.colors.primary.copy(alpha = 0.1f) else Color.Transparent)
                                 .pointerInput(Unit) {
                                     detectDragGesturesAfterLongPress(
-                                        onDragStart = { draggedIndex = index },
+                                        onDragStart = { 
+                                            draggedIndex = index
+                                            draggingOffset = 0f
+                                        },
                                         onDragEnd = {
-                                            val targetIndex = (index + (draggingOffset / 56).toInt()).coerceIn(0, highlightColors.size - 1)
-                                            if (targetIndex != index) {
-                                                val movedItem = highlightColors.removeAt(index)
-                                                highlightColors.add(targetIndex, movedItem)
-                                                settingsManager.saveColors(highlightColors)
-                                            }
                                             draggedIndex = null
                                             draggingOffset = 0f
+                                            autoscrollJob?.cancel()
+                                            settingsManager.saveColors(highlightColors)
                                         },
                                         onDragCancel = {
                                             draggedIndex = null
                                             draggingOffset = 0f
+                                            autoscrollJob?.cancel()
                                         },
                                         onDrag = { change, dragAmount ->
                                             change.consume()
-                                            draggingOffset += dragAmount.y / (context.resources.displayMetrics.density)
+                                            draggingOffset += dragAmount.y / density
+                                            
+                                            // Live Reordering Logic
+                                            val currentOffset = draggingOffset
+                                            val threshold = 28 // Half height of row
+                                            
+                                            if (currentOffset > threshold && index < highlightColors.size - 1) {
+                                                highlightColors.add(index + 1, highlightColors.removeAt(index))
+                                                draggedIndex = index + 1
+                                                draggingOffset -= 56
+                                            } else if (currentOffset < -threshold && index > 0) {
+                                                highlightColors.add(index - 1, highlightColors.removeAt(index))
+                                                draggedIndex = index - 1
+                                                draggingOffset += 56
+                                            }
                                         }
                                     )
                                 }
@@ -108,14 +133,14 @@ fun SettingsScreen(onBackClicked: () -> Unit) {
                         ) {
                             Icon(
                                 Icons.Default.Menu,
-                                contentDescription = "Reorder",
+                                contentDescription = "Reorder ${item.first}",
                                 tint = MaterialTheme.colors.onSurface.copy(alpha = 0.4f)
                             )
                             Spacer(modifier = Modifier.width(16.dp))
                             Box(
                                 modifier = Modifier
                                     .size(24.dp)
-                                    .background(item.second, MaterialTheme.shapes.small)
+                                    .background(item.second, RoundedCornerShape(4.dp))
                             )
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(text = item.first, modifier = Modifier.weight(1f))
