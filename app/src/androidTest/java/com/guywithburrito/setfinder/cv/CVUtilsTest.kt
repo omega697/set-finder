@@ -59,4 +59,46 @@ class CVUtilsTest {
         
         assertThat(q1.calculateIoU(q2)).isEqualTo(0.0)
     }
+
+    @Test
+    fun isWhiteCard_pureWhite_returnsTrue() {
+        val quad = MatOfPoint2f(Point(10.0, 10.0), Point(90.0, 10.0), Point(90.0, 140.0), Point(10.0, 140.0))
+        // Create 100x150 Lab image: L=200, a=128, b=128 (Bright neutral white)
+        val lab = org.opencv.core.Mat(150, 100, org.opencv.core.CvType.CV_8UC3, org.opencv.core.Scalar(200.0, 128.0, 128.0))
+        
+        assertThat(quad.isWhiteCard(lab)).isTrue()
+        lab.release()
+    }
+
+    @Test
+    fun isWhiteCard_darkDesk_returnsFalse() {
+        val quad = MatOfPoint2f(Point(10.0, 10.0), Point(90.0, 10.0), Point(90.0, 140.0), Point(10.0, 140.0))
+        // Create 100x150 Lab image: L=50, a=128, b=128 (Dark grey/black)
+        val lab = org.opencv.core.Mat(150, 100, org.opencv.core.CvType.CV_8UC3, org.opencv.core.Scalar(50.0, 128.0, 128.0))
+        
+        assertThat(quad.isWhiteCard(lab)).isFalse()
+        lab.release()
+    }
+
+    @Test
+    fun isWhiteCard_saturatedRed_returnsFalse() {
+        val quad = MatOfPoint2f(Point(10.0, 10.0), Point(90.0, 10.0), Point(90.0, 140.0), Point(10.0, 140.0))
+        // Create 100x150 Lab image: L=180 (Bright), a=200 (Strong Red), b=150 (Slight Yellow)
+        // avgChrom will be sqrt((200-128)^2 + (150-128)^2) = sqrt(72^2 + 22^2) ~= 75 > 15
+        val lab = org.opencv.core.Mat(150, 100, org.opencv.core.CvType.CV_8UC3, org.opencv.core.Scalar(180.0, 200.0, 150.0))
+        
+        assertThat(quad.isWhiteCard(lab)).isFalse()
+        lab.release()
+    }
+
+    @Test
+    fun isWhiteCard_offWhiteShadow_returnsTrue() {
+        val quad = MatOfPoint2f(Point(10.0, 10.0), Point(90.0, 10.0), Point(90.0, 140.0), Point(10.0, 140.0))
+        // L=170 (Bright but shadowed), a=132, b=135 (Slightly warm/yellowish indoor lighting)
+        // Chrom distance = sqrt(4^2 + 7^2) ~= 8.06 < 15.0
+        val lab = org.opencv.core.Mat(150, 100, org.opencv.core.CvType.CV_8UC3, org.opencv.core.Scalar(170.0, 132.0, 135.0))
+        
+        assertThat(quad.isWhiteCard(lab)).isTrue()
+        lab.release()
+    }
 }
