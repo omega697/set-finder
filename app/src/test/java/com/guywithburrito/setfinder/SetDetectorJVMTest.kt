@@ -25,6 +25,7 @@ class SetDetectorJVMTest {
         val mockProcessor: FrameProcessor = mock()
         
         whenever(mockProcessor.createMat()).thenReturn(mock())
+        whenever(mockProcessor.createMatOfPoint2f(any())).thenReturn(mock())
         
         val detector = SetDetector(mockFinder, mockExtractor, mockIdentifier, mockProcessor)
         

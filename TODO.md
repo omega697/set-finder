@@ -6,7 +6,7 @@
 - [x] **High-Precision Implementation:** Combined `RETR_EXTERNAL` boundaries with margin-based `isWhiteCard` validation.
 - [x] **Geometric Precision:** Implemented deduplication using polygon IoU via `intersectConvexConvex`.
 - [x] **Centralized Ground Truth:** Created regression suite for 15 scenes in `QuadFindingGroundTruth.kt`.
-- [!] **Status:** ~70.5% baseline recall. Functional but needs further work on both **recall** (capturing high-clutter scenes like the windowsill) and **accuracy/precision** (minimizing false positives on non-card surfaces).
+- [!] **Status:** **63.93% baseline recall** (spatial). Optimization needed for tight shots and edge-touching cards.
 
 ### Stage 2: Chip Extraction (Normalization)
 - [x] **Verified Parity:** 100% match with Python `chip_extractor.py` (Histogram Correlation > 0.99).
@@ -14,14 +14,14 @@
 - [x] **Integrated:** Linked to `CardFinder` metadata for strategy auditing.
 
 ### Stage 3: Card Filtering & Identification
-- [x] **Verified Accuracy:** >98% accuracy on standardized card chips.
-- [x] **Functional Terminology:** Logic updated to use `empty`, `shaded`, `solid`.
-- [x] **Robust Attributes:** Extraction of Color, Shape, Number, and Filling is verified.
+- [x] **100% Accuracy:** Achieved perfect verification on 162-card identification suite.
+- [x] **Stable Output Mapping:** Implemented `CardModelMapper` to own stable trait indices, eliminating fragility.
+- [x] **Zero-Crash Conversion:** Developed robust TFLite export script with `training=False` wrapper.
 
 ## 📋 Next Major Focus (Upcoming)
-1.  **ML Model Improvement:** Refine the training dataset and architecture to handle diverse lighting and "off-white" card conditions.
-2.  **TFLite Conversion:** Optimize the conversion pipeline to ensure high fidelity and performance on mobile hardware.
-3.  **Output Mapping:** Finalize named TFLite outputs to eliminate fragile index-based mapping.
+1.  **Stage 1 Optimization:** Improve quad finder recall to handle cards touching frame edges.
+2.  **v14 Model Training:** Currently training (15 epochs) with optimized 'squiggle-safe' augmentation and OpenCV-based white balancing.
+3.  **ML Lifecycle Dashboard:** Automated interface for video upload, labeling, bootstrapping, training, and conversion.
 
 ## 🗺️ Future Roadmap
 - **Stage 1 Polish:** Finalize multi-context block size tuning to resolve the remaining windowsill bottleneck.
