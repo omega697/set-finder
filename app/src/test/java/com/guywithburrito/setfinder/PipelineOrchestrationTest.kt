@@ -46,7 +46,7 @@ class PipelineOrchestrationTest {
         
         // 1. Mock Detection output
         val mockQuad: List<Point> = listOf(Point(0.0, 0.0), Point(1.0, 0.0), Point(1.0, 1.0), Point(0.0, 1.0))
-        whenever(mockFinder.findLikelyCards(any())).thenReturn(listOf(mock()))
+        whenever(mockFinder.findCandidates(any())).thenReturn(listOf(mock()))
         
         // 2. Mock Tracking output
         val mockTracked: TrackedCard = mock()
@@ -57,7 +57,7 @@ class PipelineOrchestrationTest {
         
         // Verify orchestration
         verify(mockProcessor).resize(any(), any(), any(), any(), any(), any())
-        verify(mockFinder).findLikelyCards(any())
+        verify(mockFinder).findCandidates(any())
         verify(mockTracker).updateGeometric(any())
     }
 }

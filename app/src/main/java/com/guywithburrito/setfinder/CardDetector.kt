@@ -105,7 +105,7 @@ class CardDetector(
         analysisHeight = analysisFrame.rows().toFloat()
         
         // 1. Geometric Detection
-        var quads = finder.findLikelyCards(analysisFrame)
+        var quads = finder.findCandidates(analysisFrame)
         if (singleCardMode) {
             val center = Point(analysisFrame.cols() / 2.0, analysisFrame.rows() / 2.0)
             val best = quads.minByOrNull { q ->

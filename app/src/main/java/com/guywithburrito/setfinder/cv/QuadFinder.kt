@@ -23,7 +23,6 @@ interface QuadFindingStrategy {
 interface QuadFinder {
     fun findCandidates(mat: Mat): List<MatOfPoint2f>
     fun findCandidatesFull(mat: Mat): List<CandidateQuad>
-    fun findLikelyCards(mat: Mat): List<MatOfPoint2f>
 }
 
 /**
@@ -190,9 +189,5 @@ class OpenCVQuadFinder(private val settingsManager: com.guywithburrito.setfinder
             if (unique.size >= 25) break 
         }
         return unique
-    }
-
-    override fun findLikelyCards(mat: Mat): List<MatOfPoint2f> {
-        return findCandidates(mat)
     }
 }

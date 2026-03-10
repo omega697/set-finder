@@ -47,7 +47,7 @@ class PipelineAlignmentTest {
     fun stage1_Detection_FindsCorrectCount() {
         val mat = loadFullFrame("scenes/cards_13_wide_shot.jpg")
         val finder = OpenCVQuadFinder()
-        val cards = finder.findLikelyCards(mat)
+        val cards = finder.findCandidates(mat)
         
         // Note: Current recall on this scene is ~11/13.
         // The TODO mentions improving this to capture all 13.
