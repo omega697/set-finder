@@ -27,3 +27,4 @@ ml/reverify_output/
 # Training Data
 # Ignore external files (prefixed with ext_) in any dataset subdirectory
 ml/dataset/**/ext_*
+.idea/
