@@ -25,8 +25,8 @@ interface CardExpert {
          * Factory method to get the default implementation.
          */
         fun getInstance(context: Context): CardExpert {
-            // Using v13 model and mapper. The robust mapping logic is inside CardModelMapper.
-            return TFLiteCardExpert(TFLiteExpertModel(context, "attribute_expert_v13.tflite"), CardModelMapper.V13)
+            // Using v14 model and mapper. The robust mapping logic is inside CardModelMapper.
+            return TFLiteCardExpert(TFLiteExpertModel(context, "attribute_expert_v14.tflite"), CardModelMapper.V14)
         }
     }
 }

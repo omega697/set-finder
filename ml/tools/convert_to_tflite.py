@@ -1,12 +1,11 @@
 import tensorflow as tf
 import os
 import argparse
+from pathlib import Path
 
 """
-Simplified TFLite Conversion Script for Set Finder.
-
-This script uses the standard Keras conversion path while ensuring 
-that training-only layers (like RandomRotation) are disabled for inference.
+Generalized TFLite Conversion Script for Set Finder.
+Usage: python3 convert_to_tflite.py --input model_v14.keras [--output model_v14.tflite]
 """
 
 def convert_to_tflite(keras_path, tflite_path):
@@ -15,21 +14,16 @@ def convert_to_tflite(keras_path, tflite_path):
         return
         
     print(f"Loading model {keras_path}...")
-    # Load the trained model
     model = tf.keras.models.load_model(keras_path)
     
-    # Create a clean inference-only wrapper.
-    # Passing training=False ensures that augmentation and dropout layers 
-    # are bypassed, which prevents conversion errors and runtime crashes.
-    inputs = tf.keras.Input(shape=(224, 224, 3), name='input_data')
-    outputs = model(inputs, training=False)
-    inference_model = tf.keras.Model(inputs, outputs)
+    # We use the functional API order to ensure TFLite outputs match Keras
+    # Passing training=False is critical to disable dropout/batchnorm updates
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
     
-    print("Converting to TFLite...")
-    # Use the standard converter. The output order is guaranteed to match 
-    # the order of outputs in the original Keras model.
-    converter = tf.lite.TFLiteConverter.from_keras_model(inference_model)
+    # Enable optimizations by default for mobile efficiency
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
     
+    print("Converting to TFLite (with DEFAULT optimizations)...")
     tflite_model = converter.convert()
     
     with open(tflite_path, "wb") as f:
@@ -38,7 +32,11 @@ def convert_to_tflite(keras_path, tflite_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--output", required=True)
+    parser.add_argument("--input", required=True, help="Path to .keras model")
+    parser.add_argument("--output", help="Path to save .tflite model (default: same as input)")
     args = parser.parse_args()
-    convert_to_tflite(args.input, args.output)
+    
+    input_path = Path(args.input)
+    output_path = args.output or input_path.with_suffix(".tflite")
+    
+    convert_to_tflite(str(input_path), str(output_path))

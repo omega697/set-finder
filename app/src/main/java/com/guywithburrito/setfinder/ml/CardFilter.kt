@@ -24,8 +24,8 @@ interface CardFilter {
          * Factory method to get the default implementation.
          */
         fun getInstance(context: Context): CardFilter {
-            // Using v13 model and setting a robust threshold
-            return TFLiteCardFilter(TFLiteCardFilterModel(context, "card_filter_v13.tflite"), threshold = 0.5f)
+            // Using v14 model and setting a robust threshold
+            return TFLiteCardFilter(TFLiteCardFilterModel(context, "card_filter_v14.tflite"), threshold = 0.5f)
         }
     }
 }
