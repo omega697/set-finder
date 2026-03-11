@@ -4,7 +4,7 @@ This guide explains how to set up the ML environment, manage the dataset, and tr
 
 ## 🛠️ Environment Setup
 
-The ML pipeline requires Python 3.10+ and several dependencies (TensorFlow, OpenCV, Keras, etc.).
+The ML pipeline requires Python 3.10+ and several dependencies (TensorFlow, OpenCV, Keras, PyTorch for SAM, etc.).
 
 1.  **Create Virtual Environment:**
     ```bash
@@ -23,71 +23,68 @@ The ML pipeline requires Python 3.10+ and several dependencies (TensorFlow, Open
 The project uses a combination of internal (Git-tracked) and external (Git-ignored) data.
 
 ### Fetching External Data
-To bootstrap the dataset with high-quality labelled cards from the [tomwhite/set-game](https://github.com/tomwhite/set-game) repository:
+To bootstrap the dataset with high-quality labelled cards from external sources:
 ```bash
-python tools/fetch_external_data.py
+python tools/temp/fetch_external_data.py
 ```
-This script downloads ~1,000 images, maps them to our naming convention, and saves them with an `ext_` prefix. These files are automatically ignored by Git.
+This script downloads ~1,000 images, maps them to our naming convention, and saves them with an `ext_` prefix.
 
 ### Labeling New Data
-If you have new photos or videos of cards, follow this workflow:
+We use Segment Anything (SAM) for efficient auto-labeling of video frames.
 
-1.  **Extract Chips:**
-    Use the extractor to find quads in raw videos and save them as warped 144x224 chips.
+1.  **Auto-Labeling (Batch):**
+    Processes every Nth frame of target videos and uses SAM to isolate cards, which are then verified by a classifier.
     ```bash
-    # Extract from a video file
-    # --input: path to video
-    # --output: target directory (defaults to 'chips')
-    # --interval: process one frame every N frames (defaults to 500)
-    python tools/chip_extractor.py --input raw_data/video.mp4 --output raw_data/chips/ --interval 100
+    python tools/bulk_label.py
     ```
+    *Note: Outputs logs to `ml/tools/logs/bulk_label.log`.*
 
-2.  **Label Chips:**
-    Launch the custom UI to sort chips into the `dataset/` directory.
+2.  **Interactive Labeling (Web UI):**
+    Launches a Flask-based UI for manual sorting and verification of chips.
     ```bash
     python tools/labeler.py
-    ```
-
-3.  **Bootstrapping (Optional):**
-    If you already have a trained model, you can "rescue" unlabelled chips by moving them to the `predictions/` directory based on model traits for faster verification:
-    ```bash
-    python tools/rescue_pile.py --source raw_data/chips/ --filter_model card_filter_v13.keras --expert_model attribute_expert_v13.keras --predictions predictions/
     ```
 
 ## 🚀 Training Pipeline
 
 ### 1. Train Models
-To train both the **Card Filter** (Is it a card?) and **Attribute Expert** (What are its traits?) models:
+To train both the **Card Filter** and **Attribute Expert** models:
 ```bash
-python tools/train.py --epochs 10 --filter-model card_filter_v13.keras --expert-model attribute_expert_v13.keras
+python tools/train.py --epochs 15 --oversample 4 --log tools/logs/train_v14.log
 ```
-*Note: Training uses squiggle-safe augmentation (rotation only, no flipping) and includes brightness/contrast variations for lighting robustness.*
+*Note: Models are saved to `ml/models/` by default.*
 
 ### 2. Convert to TFLite
-The Android app requires models in `.tflite` format. Our converter uses a specialized process to ensure models are reliable and easy to use:
-
-*   **Stripping "Training Wheels":** The script creates an inference-only wrapper (`training=False`). This bypasses layers like `RandomRotation` and `Dropout` that are only needed during training, which prevents conversion errors and runtime crashes in the app.
-*   **Stable Output Order:** The converter preserves the order of outputs defined in the Keras model. For the Attribute Expert, this order is: 
-    - **Index 0:** Count
-    - **Index 1:** Shape
-    - **Index 2:** Color
-    - **Index 3:** Pattern
-*   **Android Mapping:** The `CardModelMapper` class in the Android app is configured to match this stable order.
-
+The Android app requires models in `.tflite` format. Use the generalized conversion script:
 ```bash
-python tools/convert_to_tflite.py --input card_filter_v13.keras --output card_filter_v13.tflite
-python tools/convert_to_tflite.py --input attribute_expert_v13.keras --output attribute_expert_v13.tflite
+python tools/convert_to_tflite.py --input ml/models/card_filter_v14.keras
+python tools/convert_to_tflite.py --input ml/models/attribute_expert_v14.keras
+```
+This script automatically handles:
+-   **Inference-only wrapping:** Bypasses training-only layers (Dropout, RandomRotation).
+-   **Optimizations:** Enables standard DEFAULT optimizations for mobile.
+-   **Naming:** Defaults to the same base name with a `.tflite` extension.
+
+### 3. Verify Mapping
+If model heads shift during retraining, verify the output indices before updating the Android app:
+```bash
+python tools/debug_tflite_mapping.py --model ml/models/attribute_expert_v14.tflite --images ../app/src/androidTest/assets/chips/cards/
 ```
 
-## 🛠️ Utility Tools
+## 🛠️ Core Tools (`ml/tools/`)
 
-- **`rescue_pile.py`**: Moves unlabelled chips from `raw_data` into the `dataset` structure based on model predictions (useful for bootstrapping).
-- **`chip_extractor.py`**: Extracts card chips from video files or folders of images.
-- **`verify_tflite.py`**: Validates that a `.tflite` model produces expected outputs for a given sample image.
+-   **`bulk_label.py`**: Headless batch auto-labeler using SAM.
+-   **`train.py`**: Main training entry point for both models.
+-   **`labeler.py`**: Web-based manual labeling interface.
+-   **`convert_to_tflite.py`**: Generalized Keras to TFLite converter.
+-   **`debug_tflite_mapping.py`**: Tool to disambiguate model output heads.
+-   **`refiner.py`**: Library for sub-pixel quad refinement.
+-   **`dataset_cleaner.py`**: Utility to prune low-confidence or duplicate data.
 
-## 📁 Ignored Files
-The following are excluded from Git but can be recreated using the steps above:
-- `ml/venv/`: Recreate via `venv` and `requirements.txt`.
-- `ml/*.keras`, `ml/*.tflite`: Recreate via `train.py` and `convert_to_tflite.py`.
-- `ml/dataset/**/ext_*`: Recreate via `fetch_external_data.py`.
-- `ml/predictions/`, `ml/raw_data/`: Intermediate pipeline artifacts.
+*Note: Ad-hoc debug scripts and one-off utilities are located in `ml/tools/temp/` and are ignored by Git.*
+
+## 📁 Project Structure
+-   `ml/models/`: Source `.keras` and exported `.tflite` models.
+-   `ml/dataset/`: Sorted training data (verified cards and non-cards).
+-   `ml/tools/logs/`: Standard output for long-running scripts (ignored).
+-   `ml/tools/temp/`: Experimental or ad-hoc scripts (ignored).
