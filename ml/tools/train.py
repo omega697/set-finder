@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import argparse
 import shutil
+import sys
 
 # Constants
 IMG_SIZE = (224, 224)
@@ -170,11 +171,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     default_dataset = Path(__file__).parent.parent / "dataset"
     parser.add_argument("--dataset", default=str(default_dataset))
-    parser.add_argument("--filter_model", default="card_filter_latest.keras")
-    parser.add_argument("--expert_model", default="attribute_expert_latest.keras")
+    parser.add_argument("--filter_model", default="ml/models/card_filter_latest.keras")
+    parser.add_argument("--expert_model", default="ml/models/attribute_expert_latest.keras")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--oversample", type=int, default=4)
+    parser.add_argument("--log", help="Path to log file")
     args = parser.parse_args()
+
+    if args.log:
+        log_path = Path(args.log)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        print(f"Logging to {args.log}")
+        f = open(args.log, 'w')
+        sys.stdout = f
+        sys.stderr = f
 
     print(f"Preparing datasets with {args.oversample}x oversampling...")
     ds_filter, ds_expert = prepare_datasets(args.dataset, args.oversample)

@@ -28,3 +28,6 @@ ml/reverify_output/
 # Ignore external files (prefixed with ext_) in any dataset subdirectory
 ml/dataset/**/ext_*
 .idea/
+ml/tools/logs/
+ml/tools/temp/
+ml/tools/logs/

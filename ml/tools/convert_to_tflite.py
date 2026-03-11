@@ -5,7 +5,7 @@ from pathlib import Path
 
 """
 Generalized TFLite Conversion Script for Set Finder.
-Usage: python3 convert_to_tflite.py --input model_v14.keras [--output model_v14.tflite]
+Usage: python3 convert_to_tflite.py --input ml/models/model_v14.keras [--output ml/models/model_v14.tflite]
 """
 
 def convert_to_tflite(keras_path, tflite_path):
