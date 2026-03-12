@@ -6,201 +6,228 @@ import tensorflow as tf
 from segment_anything import sam_model_registry, SamPredictor
 import time
 from pathlib import Path
-
 import sys
+import argparse
 
-# --- CONFIG ---
-CHECKPOINT = "ml/sam_vit_b_01ec64.pth"
-MODEL_TYPE = "vit_b"
-DEVICE = "cpu" 
-VIDEOS = [
-    "/usr/local/google/home/kdresner/Downloads/PXL_20260308_003730588.mp4",
-    "/usr/local/google/home/kdresner/Downloads/PXL_20260306_221751495.mp4",
-    "/usr/local/google/home/kdresner/Downloads/PXL_20260306_223532288.mp4"
-]
-FILTER_MODEL_PATH = "ml/models/card_filter_v14.keras"
-OUTPUT_DIR = "ml/dataset/yolo_pose"
-LOG_DIR = "ml/tools/logs"
-THRESHOLD = 0.90
-FRAME_STEP = 10
+# Import shared extraction logic from chip_extractor.py
+from chip_extractor import unwarp, apply_white_balance
+from model_downloader import ensure_checkpoint
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(LOG_DIR, exist_ok=True)
-
-# Redirect output to log file
-log_file = os.path.join(LOG_DIR, "bulk_label.log")
-print(f"Logging to {log_file}")
-f = open(log_file, 'w')
-sys.stdout = f
-sys.stderr = f
-
-# --- MODELS ---
-print("Initializing SAM Predictor...")
-sam = sam_model_registry[MODEL_TYPE](checkpoint=CHECKPOINT)
-sam.to(device=DEVICE)
-predictor = SamPredictor(sam)
-
-print("Loading Card Filter...")
-card_filter = tf.keras.models.load_model(FILTER_MODEL_PATH)
-
-def get_card_crop(img, quad, size=(224, 224)):
-    pts = np.array(quad, dtype="float32")
-    s = pts.sum(axis=1)
-    diff = np.diff(pts, axis=1)
-    rect = np.zeros((4, 2), dtype="float32")
-    rect[0] = pts[np.argmin(s)]       # top-left
-    rect[2] = pts[np.argmax(s)]       # bottom-right
-    rect[1] = pts[np.argmin(diff)]    # top-right
-    rect[3] = pts[np.argmax(diff)]    # bottom-left
-    dst = np.array([[0, 0], [size[0] - 1, 0], [size[0] - 1, size[1] - 1], [0, size[1] - 1]], dtype="float32")
-    M = cv2.getPerspectiveTransform(rect, dst)
-    return cv2.warpPerspective(img, M, size)
-
-def intersect_lines(p1, p2, p3, p4):
-    x1, y1 = p1; x2, y2 = p2
-    x3, y3 = p3; x4, y4 = p4
-    denom = (y4-y3)*(x2-x1) - (x4-x3)*(y2-y1)
-    if denom == 0: return None
-    ua = ((x4-x3)*(y1-y3) - (y4-y3)*(x1-x3)) / denom
-    return np.array([x1 + ua*(x2-x1), y1 + ua*(y2-y1)])
-
-def fit_outer_quad(mask):
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours: return None
-    cnt = max(contours, key=cv2.contourArea)
-    hull = cv2.convexHull(cnt).reshape(-1, 2).astype(float)
-    while len(hull) > 4:
-        best_idx = -1; min_added_area = float('inf'); best_new_pt = None
-        for i in range(len(hull)):
-            p_m1, p_0, p_p1, p_p2 = hull[i-1], hull[i], hull[(i+1)%len(hull)], hull[(i+2)%len(hull)]
-            new_pt = intersect_lines(p_m1, p_0, p_p1, p_p2)
-            if new_pt is not None:
-                area = 0.5 * abs(p_0[0]*(p_p1[1]-new_pt[1]) + p_p1[0]*(new_pt[1]-p_0[1]) + new_pt[0]*(p_0[1]-p_p1[1]))
-                if area < min_added_area:
-                    min_added_area = area; best_idx = i; best_new_pt = new_pt
-        if best_idx == -1: break
-        next_idx = (best_idx + 1) % len(hull)
-        if next_idx > best_idx:
-            hull = np.delete(hull, [best_idx, next_idx], axis=0)
-            hull = np.insert(hull, best_idx, best_new_pt, axis=0)
-        else:
-            hull = np.delete(hull, [best_idx, next_idx], axis=0)
-            hull = np.append(hull, [best_new_pt], axis=0)
-    return hull.astype(int)
-
-def auto_detect(frame):
-    h, w = frame.shape[:2]
-    predictor.set_image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    # Broaden further: lower value threshold, higher saturation allowance
-    seed_mask = cv2.bitwise_and(cv2.threshold(hsv[:,:,2], 120, 255, cv2.THRESH_BINARY)[1], 
-                               cv2.threshold(hsv[:,:,1], 80, 255, cv2.THRESH_BINARY_INV)[1])
+def main():
+    parser = argparse.ArgumentParser(description="Bulk label video frames using SAM and MobileNetV2.")
+    parser.add_argument("--checkpoint", default="ml/sam_vit_b_01ec64.pth", help="Path to SAM checkpoint.")
+    parser.add_argument("--model_type", default="vit_b", help="SAM model type.")
+    parser.add_argument("--device", default="cpu", help="Device to run SAM on (cpu or cuda).")
+    parser.add_argument("--video_dir", default="ml/raw_data/quad_finding_training", help="Directory containing videos.")
+    parser.add_argument("--video", help="Process a single video file instead of a directory.")
+    parser.add_argument("--filter_model", default="ml/models/card_filter_v14.keras", help="Path to card filter model.")
+    parser.add_argument("--output_dir", default="ml/dataset/yolo_pose", help="Directory to save labels.")
+    parser.add_argument("--debug_dir", default="ml/tools/debug_output", help="Directory to save debug images.")
+    parser.add_argument("--log_dir", default="ml/tools/logs", help="Directory to save logs.")
+    parser.add_argument("--save_debug", action="store_true", help="Save debug images with quad overlays.")
+    parser.add_argument("--threshold", type=float, default=0.40, help="Confidence threshold for accepting cards.")
+    parser.add_argument("--step", type=int, default=10, help="Process every Nth frame.")
+    parser.add_argument("--max_frames", type=int, help="Limit number of frames per video.")
+    parser.add_argument("--log_to_file", action="store_true", help="Redirect output to a log file.")
     
-    # Exclude edges (avoid table edges/glare)
-    margin = 50
-    edge_mask = np.zeros((h, w), dtype=np.uint8)
-    cv2.rectangle(edge_mask, (margin, margin), (w-margin, h-margin), 255, -1)
-    seed_mask = cv2.bitwise_and(seed_mask, edge_mask)
+    args = parser.parse_args()
 
-    exclusion_mask = np.zeros((h, w), dtype=np.uint8)
-    found_quads = []
+    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(args.log_dir, exist_ok=True)
+    os.makedirs(args.debug_dir, exist_ok=True)
+
+    if args.log_to_file:
+        log_file = os.path.join(args.log_dir, "bulk_label.log")
+        print(f"Logging to {log_file}")
+        f = open(log_file, 'w', buffering=1) # Line buffered
+        sys.stdout = f
+        sys.stderr = f
+
+    # Find videos
+    if args.video:
+        VIDEOS = [Path(args.video)]
+    else:
+        VIDEOS = sorted(list(Path(args.video_dir).glob("*.mp4")))
     
-    for i in range(15): 
-        active_seeds = cv2.bitwise_and(seed_mask, cv2.bitwise_not(exclusion_mask))
-        dist = cv2.distanceTransform(active_seeds, cv2.DIST_L2, 5)
-        _, max_val, _, max_loc = cv2.minMaxLoc(dist)
-        if max_val < 15: break
-            
-        # SAM from this peak with a negative point to discourage background
-        neg_pt = [max_loc[0] + 250, max_loc[1] + 250]
-        if neg_pt[0] >= w: neg_pt[0] = max_loc[0] - 250
-        if neg_pt[1] >= h: neg_pt[1] = max_loc[1] - 250
-        
-        masks, scores, _ = predictor.predict(
-            point_coords=np.array([max_loc, neg_pt]),
-            point_labels=np.array([1, 0]),
-            multimask_output=True
-        )
-        
-        # Pick the SMALLEST mask that is within our area bounds
-        best_mask = None
-        for m in masks:
-            a = np.sum(m) / (h * w)
-            if 0.002 < a < 0.25:
-                if best_mask is None or a < (np.sum(best_mask) / (h * w)):
-                    best_mask = m
-        
-        if best_mask is None:
-            # If all multimasks are out of bounds, check the highest score one just to log why
-            top_idx = np.argmax(scores)
-            top_a = np.sum(masks[top_idx]) / (h * w)
-            print(f"      Iter {i}: Rejected (all masks out of bounds, top area {top_a:.4f})")
-            cv2.circle(exclusion_mask, max_loc, int(max_val) + 5, 255, -1)
-            continue
+    if not VIDEOS:
+        print(f"No videos found.")
+        sys.exit(0)
 
-        mask = best_mask
-        area_ratio = np.sum(mask) / (h * w)
+    # --- MODELS ---
+    print("Initializing SAM Predictor...")
+    checkpoint_path = ensure_checkpoint(args.checkpoint, args.model_type)
+    sam = sam_model_registry[args.model_type](checkpoint=checkpoint_path)
+    sam.to(device=args.device)
+    predictor = SamPredictor(sam)
+
+    print("Loading Card Filter...")
+    card_filter = tf.keras.models.load_model(args.filter_model)
+
+    def fit_outer_quad(mask):
+        """ Fits a quadrilateral to a mask using hull area minimization. """
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours: return None
+        cnt = max(contours, key=cv2.contourArea)
+        hull = cv2.convexHull(cnt).reshape(-1, 2).astype(float)
         
-        quad = fit_outer_quad(mask.astype(np.uint8)*255)
-        if quad is not None:
-            crop = get_card_crop(frame, quad)
-            crop_preprocessed = tf.keras.applications.mobilenet_v2.preprocess_input(crop.astype(np.float32))
-            prob = card_filter.predict(np.expand_dims(crop_preprocessed, 0), verbose=0)[0][0]
-            if prob > THRESHOLD:
-                found_quads.append(quad.tolist())
-                cv2.fillPoly(exclusion_mask, [np.array(quad, dtype=np.int32)], 255)
-                print(f"      Iter {i}: Found card (prob={prob:.4f}, area={area_ratio:.4f})")
+        def intersect_lines(p1, p2, p3, p4):
+            x1, y1 = p1; x2, y2 = p2; x3, y3 = p3; x4, y4 = p4
+            denom = (y4-y3)*(x2-x1) - (x4-x3)*(y2-y1)
+            if denom == 0: return None
+            ua = ((x4-x3)*(y1-y3) - (y4-y3)*(x1-x3)) / denom
+            return np.array([x1 + ua*(x2-x1), y1 + ua*(y2-y1)])
+
+        while len(hull) > 4:
+            best_idx = -1; min_added_area = float('inf'); best_new_pt = None
+            for i in range(len(hull)):
+                p_m1, p_0, p_p1, p_p2 = hull[i-1], hull[i], hull[(i+1)%len(hull)], hull[(i+2)%len(hull)]
+                new_pt = intersect_lines(p_m1, p_0, p_p1, p_p2)
+                if new_pt is not None:
+                    area = 0.5 * abs(p_0[0]*(p_p1[1]-new_pt[1]) + p_p1[0]*(new_pt[1]-p_0[1]) + new_pt[0]*(p_0[1]-p_p1[1]))
+                    if area < min_added_area:
+                        min_added_area = area; best_idx = i; best_new_pt = new_pt
+            if best_idx == -1: break
+            next_idx = (best_idx + 1) % len(hull)
+            if next_idx > best_idx:
+                hull = np.delete(hull, [best_idx, next_idx], axis=0); hull = np.insert(hull, best_idx, best_new_pt, axis=0)
+            else:
+                hull = np.delete(hull, [best_idx, next_idx], axis=0); hull = np.append(hull, [best_new_pt], axis=0)
+        return hull.astype(int)
+
+    def get_mask_metrics(mask1, mask2):
+        """ Returns (IoU, Containment1in2) """
+        intersection = np.logical_and(mask1, mask2).sum()
+        if intersection == 0: return 0, 0
+        union = np.logical_or(mask1, mask2).sum()
+        area1 = np.sum(mask1)
+        return (intersection / union), (intersection / area1)
+
+    def fit_area_regression(candidates):
+        """ Fits a linear regression model: Area = w1*X + w2*Y + b """
+        high_conf = [c for c in candidates if c['prob'] > 0.85]
+        if len(high_conf) < 3: return None
+        median_area = np.median([c['area'] for c in high_conf])
+        anchors = [c for c in high_conf if 0.4 * median_area < c['area'] < 2.5 * median_area]
+        kept_anchors = []
+        for a in sorted(anchors, key=lambda x: x['prob'], reverse=True):
+            center = np.mean(a['quad'], axis=0)
+            if not any(np.linalg.norm(center - np.mean(ka['quad'], axis=0)) < 100 for ka in kept_anchors):
+                kept_anchors.append(a)
+        if len(kept_anchors) < 3: return None
+        X_reg = np.array([[np.mean(a['quad'], axis=0)[0], np.mean(a['quad'], axis=0)[1], 1.0] for a in kept_anchors])
+        y_reg = np.array([a['area'] for a in kept_anchors])
+        beta, residuals, _, _ = np.linalg.lstsq(X_reg, y_reg, rcond=None)
+        y_mean = np.mean(y_reg)
+        ss_tot = np.sum((y_reg - y_mean)**2)
+        ss_res = residuals[0] if len(residuals) > 0 else np.sum((np.dot(X_reg, beta) - y_reg)**2)
+        r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+        return {'beta': beta, 'r2': r2, 'median': median_area}
+
+    def auto_detect(frame):
+        h, w = frame.shape[:2]
+        predictor.set_image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        margin = 10 
+        grid_x = np.linspace(margin, w - margin, 24).astype(int)
+        grid_y = np.linspace(margin, h - margin, 16).astype(int)
+        grid_points = [(gx, gy) for gy in grid_y for gx in grid_x]
+        raw_candidates = [] 
+        print(f"    Scanning grid ({len(grid_x)}x{len(grid_y)})...")
+        for gx, gy in grid_points:
+            masks, _, _ = predictor.predict(point_coords=np.array([[gx, gy]]), point_labels=np.array([1]), multimask_output=True)
+            for mask in masks:
+                area = np.sum(mask)
+                if not (0.002 * h * w < area < 0.15 * h * w): continue
+                quad = fit_outer_quad(mask.astype(np.uint8)*255)
+                if quad is not None:
+                    chip = unwarp(frame, quad)
+                    chip_balanced = apply_white_balance(chip)
+                    chip_rgb = cv2.cvtColor(chip_balanced, cv2.COLOR_BGR2RGB)
+                    crop_preprocessed = tf.keras.applications.mobilenet_v2.preprocess_input(cv2.resize(chip_rgb, (224, 224)).astype(np.float32))
+                    prob = card_filter.predict(np.expand_dims(crop_preprocessed, 0), verbose=0)[0][0]
+                    if prob > 0.005:
+                        raw_candidates.append({'prob': prob, 'mask': mask, 'quad': quad.tolist(), 'area': area, 'chip': chip_balanced})
+
+        model = fit_area_regression(raw_candidates)
+        use_geom = model is not None and model['r2'] > 0.6
+        if model: print(f"    Geometry Model: R2={model['r2']:.4f}, UseGeom={use_geom}")
+
+        for cand in raw_candidates:
+            if use_geom:
+                center = np.mean(cand['quad'], axis=0)
+                beta = model['beta']
+                expected = center[0] * beta[0] + center[1] * beta[1] + beta[2]
+                cand['residual'] = abs(cand['area'] - expected) / max(1, expected)
+            elif model:
+                cand['residual'] = abs(cand['area'] - model['median']) / max(1, model['median'])
+            else:
+                cand['residual'] = 0.0
+
+        candidates = sorted(raw_candidates, key=lambda x: (
+            x['prob'] > args.threshold, x['prob'] > 0.98, x['prob'] > 0.85, -x['residual'], -x['area'], x['prob']
+        ), reverse=True)
+        
+        found_quads, rejected_quads, final_masks = [], [], []
+        for cand in candidates:
+            if use_geom and cand['residual'] > 0.40 and cand['prob'] > args.threshold:
+                rejected_quads.append((cand['quad'], cand['prob'], cand.get('chip')))
                 continue
+            if any(get_mask_metrics(cand['mask'], fm)[0] > 0.1 or get_mask_metrics(cand['mask'], fm)[1] > 0.1 for fm in final_masks):
+                continue
+            if cand['prob'] > args.threshold:
+                found_quads.append(cand['quad'])
+                final_masks.append(cand['mask'])
+                print(f"      Kept card (prob={cand['prob']:.4f}, residual={cand['residual']:.2f}, area={cand['area']})")
             else:
-                print(f"      Iter {i}: Rejected (prob={prob:.4f}, area={area_ratio:.4f})")
-        else:
-            print(f"      Iter {i}: Rejected (no quad fitted, area={area_ratio:.4f})")
+                rejected_quads.append((cand['quad'], cand['prob'], cand.get('chip')))
+        return found_quads, rejected_quads, grid_points
 
-        cv2.circle(exclusion_mask, max_loc, int(max_val) + 5, 255, -1)
-    return found_quads
+    def save_labels(frame, quads, filename):
+        img_path = os.path.join(args.output_dir, filename); cv2.imwrite(img_path, frame)
+        label_path = os.path.join(args.output_dir, filename.replace('.jpg', '.txt'))
+        h, w = frame.shape[:2]
+        with open(label_path, 'w') as f_out:
+            for q in quads:
+                q_arr = np.array(q)
+                x_min, y_min = np.min(q_arr, axis=0); x_max, y_max = np.max(q_arr, axis=0)
+                bw, bh = (x_max - x_min), (y_max - y_min); cx, cy = x_min + bw/2, y_min + bh/2
+                pts_str = " ".join([f"{pt[0]/w:.6f} {pt[1]/h:.6f} 2" for pt in q])
+                f_out.write(f"0 {cx/w:.6f} {cy/h:.6f} {bw/w:.6f} {bh/h:.6f} {pts_str}\n")
 
-def save_labels(frame, quads, filename):
-    img_path = os.path.join(OUTPUT_DIR, filename)
-    cv2.imwrite(img_path, frame)
-    
-    label_path = os.path.join(OUTPUT_DIR, filename.replace('.jpg', '.txt'))
-    h, w = frame.shape[:2]
-    
-    with open(label_path, 'w') as f:
-        for q in quads:
-            q = np.array(q)
-            x_min, y_min = np.min(q, axis=0)
-            x_max, y_max = np.max(q, axis=0)
-            bw, bh = (x_max - x_min), (y_max - y_min)
-            cx, cy = x_min + bw/2, y_min + bh/2
-            
-            line = f"0 {cx/w} {cy/h} {bw/w} {bh/h}"
-            for pt in q:
-                line += f" {pt[0]/w} {pt[1]/h} 2"
-            f.write(line + "\n")
+    def save_debug_frame(frame, found, rejected, grid_points, filename):
+        canvas = frame.copy()
+        chip_dir = os.path.join(args.debug_dir, "chips", filename.replace(".jpg", ""))
+        os.makedirs(chip_dir, exist_ok=True)
+        for i, (quad, prob, chip) in enumerate(rejected):
+            if chip is not None:
+                cv2.imwrite(os.path.join(chip_dir, f"rej_prob_{prob:.4f}_idx_{i}.jpg"), chip)
+        for gx, gy in grid_points: cv2.circle(canvas, (gx, gy), 2, (255, 0, 0), -1)
+        for quad, prob, _ in rejected:
+            pts = np.array(quad, np.int32).reshape((-1, 1, 2))
+            cv2.polylines(canvas, [pts], True, (0, 0, 255), 2)
+            cv2.putText(canvas, f"{prob:.2f}", (quad[0][0], quad[0][1]), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 1)
+        for quad in found:
+            pts = np.array(quad, np.int32).reshape((-1, 1, 2))
+            cv2.polylines(canvas, [pts], True, (0, 255, 0), 4)
+        cv2.imwrite(os.path.join(args.debug_dir, filename), canvas)
 
-for video_path in VIDEOS:
-    print(f"Processing video: {video_path}")
-    cap = cv2.VideoCapture(video_path)
-    video_name = Path(video_path).stem
-    frame_idx = 0
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret: break
-        
-        if frame_idx % FRAME_STEP == 0:
-            print(f"  Frame {frame_idx}...")
-            quads = auto_detect(frame)
-            if quads:
-                filename = f"{video_name}_frame_{frame_idx:06d}.jpg"
-                save_labels(frame, quads, filename)
-                print(f"    Found {len(quads)} cards.")
-            else:
-                print(f"    No cards found.")
-        
-        frame_idx += 1
-    
-    cap.release()
+    for video_path in VIDEOS:
+        print(f"Processing video: {str(video_path)}")
+        cap = cv2.VideoCapture(str(video_path)); video_name = video_path.stem; frame_idx = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret: break
+            if args.max_frames is not None and frame_idx >= args.max_frames: break
+            if frame_idx % args.step == 0:
+                print(f"  Frame {frame_idx}...")
+                found, rejected, grid_points = auto_detect(frame)
+                if found or rejected:
+                    filename = f"{video_name}_frame_{frame_idx:06d}.jpg"
+                    if found and not args.save_debug: save_labels(frame, found, filename)
+                    if args.save_debug: save_debug_frame(frame, found, rejected, grid_points, filename)
+                    print(f"    Found {len(found)} cards, rejected {len(rejected)} candidates.")
+            frame_idx += 1
+        cap.release()
+    print("Bulk processing complete!")
 
-print("Bulk processing complete!")
+if __name__ == "__main__":
+    main()

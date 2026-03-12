@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SAM Dataset Refiner</title>
+    <style>
+        body { font-family: sans-serif; background: #1a1a1a; color: #eee; display: flex; flex-direction: column; align-items: center; margin: 0; overflow: hidden; }
+        #header { width: 100%; padding: 10px 20px; background: #2a2a2a; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
+        #canvas-container { 
+            position: relative; 
+            margin-top: 10px; 
+            border: 2px solid #444; 
+            cursor: crosshair; 
+            width: 95vw; 
+            height: 75vh; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #000;
+        }
+        canvas { 
+            max-width: 100%; 
+            max-height: 100%; 
+            object-fit: contain;
+        }
+        #inspect-box {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #007bff;
+            padding: 5px;
+            display: none;
+            pointer-events: none;
+            z-index: 9999;
+            box-shadow: 0 0 15px rgba(0,0,0,0.5);
+        }
+        #inspect-title { font-size: 10px; color: #aaa; margin-bottom: 3px; text-align: center; }
+        #inspect-prob { font-size: 14px; font-weight: bold; margin-top: 5px; text-align: center; }
+        .controls { margin: 15px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+        button { padding: 8px 16px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        button:hover { background: #555; }
+        button.primary { background: #007bff; border-color: #0056b3; }
+        button.primary:hover { background: #0056b3; }
+        button.success { background: #28a745; border-color: #1e7e34; }
+        button.success:hover { background: #218838; }
+        button.warning { background: #ffc107; color: black; border-color: #d39e00; }
+        #status-bar { width: 100%; background: #333; padding: 5px 20px; font-size: 12px; color: #aaa; box-sizing: border-box; }
+        .clean-badge { padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 12px; }
+        .is-clean { background: #28a745; color: white; }
+        .is-dirty { background: #dc3545; color: white; }
+        kbd { background: #333; border: 1px solid #555; border-radius: 3px; padding: 1px 4px; font-size: 11px; }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <div id="file-info">
+            <span id="filename">Loading...</span>
+            <span id="clean-status" class="clean-badge"></span>
+        </div>
+        <div id="progress">Cleaned: 0/0 (0%)</div>
+        <div>
+            <button onclick="exportCleaned()" class="success">Export Cleaned</button>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button onclick="changeFrame(-10)">-10</button>
+        <button onclick="changeFrame(-1)">Prev <kbd>A</kbd></button>
+        <button onclick="goToNextUncleaned()" class="warning">Next Uncleaned</button>
+        <button onclick="changeFrame(1)">Next <kbd>D</kbd></button>
+        <button onclick="changeFrame(10)">+10</button>
+        <div style="width: 20px;"></div>
+        <button onclick="markCleanAndNext()" class="primary">Mark Clean & Next <kbd>W</kbd></button>
+    </div>
+
+    <div id="canvas-container">
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <div id="inspect-box">
+        <div id="inspect-title">Chip Preview</div>
+        <div id="inspect-loading" style="display: none; color: #ffc107; font-size: 10px; text-align: center;">Loading...</div>
+        <img id="inspect-img" src="" style="width: 144px; height: 224px; background: #333; display: block;">
+        <div id="inspect-prob">Prob: --</div>
+    </div>
+
+    <div id="status-bar">
+        Left-click outside: Add SAM quad | Left-click inside: Delete quad | Right-click: Place manual corners (4 pts) | <span id="hint">Ready</span>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

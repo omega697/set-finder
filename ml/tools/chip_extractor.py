@@ -8,7 +8,7 @@ def rectify(pts):
     """
     Robustly orders points in a quadrilateral: [top-left, top-right, bottom-right, bottom-left].
     """
-    pts = pts.reshape((4, 2))
+    pts = np.array(pts, dtype="float32").reshape((4, 2))
     # Sort by Y coordinate
     y_sorted = pts[np.argsort(pts[:, 1]), :]
     # Get top and bottom points
