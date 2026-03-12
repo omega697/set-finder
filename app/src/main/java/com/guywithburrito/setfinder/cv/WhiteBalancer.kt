@@ -13,9 +13,20 @@ interface WhiteBalancer {
     fun balanceRGB(img: Mat): Mat
 }
 
+private fun calculateMedian(mat: Mat): Double {
+    val temp = mat.reshape(1, 1)
+    val sorted = Mat()
+    Core.sort(temp, sorted, Core.SORT_EVERY_ROW or Core.SORT_ASCENDING)
+    val medianIdx = sorted.cols() / 2
+    val median = sorted.get(0, medianIdx)[0]
+    sorted.release()
+    temp.release()
+    return median
+}
+
 /**
  * Standard implementation using OpenCV LAB conversion and channel shifting.
- * Aligned with chip_extractor.py logic.
+ * Aligned with refined chip_extractor.py logic.
  */
 class OpenCVWhiteBalancer : WhiteBalancer {
 
@@ -28,16 +39,13 @@ class OpenCVWhiteBalancer : WhiteBalancer {
         val channels = mutableListOf<Mat>()
         Core.split(lab, channels)
         
-        // In OpenCV 8-bit Lab:
-        // channels[1] = a (0..255, 128 is neutral)
-        // channels[2] = b (0..255, 128 is neutral)
+        // Use median to avoid being skewed by vibrant symbols
+        val aMedian = calculateMedian(channels[1])
+        val bMedian = calculateMedian(channels[2])
         
-        val aMean = Core.mean(channels[1]).`val`[0]
-        val bMean = Core.mean(channels[2]).`val`[0]
-        
-        // Shift using Scalar addition to center at 128
-        Core.add(channels[1], Scalar(128.0 - aMean), channels[1])
-        Core.add(channels[2], Scalar(128.0 - bMean), channels[2])
+        // Shift to center at 128 (neutral in OpenCV 8-bit LAB)
+        Core.add(channels[1], Scalar(128.0 - aMedian), channels[1])
+        Core.add(channels[2], Scalar(128.0 - bMedian), channels[2])
         
         val balancedLab = Mat()
         Core.merge(channels, balancedLab)

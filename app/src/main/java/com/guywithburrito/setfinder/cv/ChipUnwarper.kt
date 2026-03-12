@@ -18,15 +18,21 @@ class ChipUnwarper {
     }
 
     fun unwarp(frame: Mat, corners: MatOfPoint2f): Mat {
-        val (p0, p1, p2, p3) = rectify(corners.toArray())
-        val width = sqrt((p1.x - p0.x).pow(2.0) + (p1.y - p0.y).pow(2.0))
-        val height = sqrt((p3.x - p0.x).pow(2.0) + (p3.y - p0.y).pow(2.0))
-
+        val pts = corners.toArray()
+        val (tl, tr, br, bl) = rectify(pts)
+        
+        // Calculate side lengths for aspect ratio check
+        val widthA = sqrt((br.x - bl.x).pow(2.0) + (br.y - bl.y).pow(2.0))
+        val widthB = sqrt((tr.x - tl.x).pow(2.0) + (tr.y - tl.y).pow(2.0))
+        val heightA = sqrt((tr.x - br.x).pow(2.0) + (tr.y - br.y).pow(2.0))
+        val heightB = sqrt((tl.x - bl.x).pow(2.0) + (tl.y - bl.y).pow(2.0))
+        
+        val avgWidth = (widthA + widthB) / 2.0
+        val avgHeight = (heightA + heightB) / 2.0
 
         val src =
-            // Possibly swap to make it portrait: bl, tl, tr, br
-            if (width > height) MatOfPoint2f(p3, p0, p1, p2)
-            else MatOfPoint2f(p0, p1, p2, p3)
+            if (avgWidth > avgHeight) MatOfPoint2f(bl, tl, tr, br)
+            else MatOfPoint2f(tl, tr, br, bl)
 
         val dst = MatOfPoint2f(
             Point(0.0, 0.0),
@@ -46,15 +52,17 @@ class ChipUnwarper {
     }
 
     private fun rectify(pts: Array<Point>): Array<Point> {
-        val sorted = Array(4) { Point() }
-        val sums = pts.map { it.x + it.y }
-        val diffs = pts.map { it.y - it.x }
+        // Sort by Y coordinate
+        val ySorted = pts.sortedBy { it.y }
+        // Get top and bottom pairs
+        val topPts = ySorted.take(2).sortedBy { it.x }
+        val bottomPts = ySorted.drop(2).sortedBy { it.x }
         
-        sorted[0] = pts[sums.indexOf(sums.minOrNull())] // Top-left
-        sorted[2] = pts[sums.indexOf(sums.maxOrNull())] // Bottom-right
-        sorted[1] = pts[diffs.indexOf(diffs.minOrNull())] // Top-right
-        sorted[3] = pts[diffs.indexOf(diffs.maxOrNull())] // Bottom-left
+        val tl = topPts[0]
+        val tr = topPts[1]
+        val bl = bottomPts[0]
+        val br = bottomPts[1]
         
-        return sorted
+        return arrayOf(tl, tr, br, bl)
     }
 }
