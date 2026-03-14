@@ -106,8 +106,8 @@ class CardDetector(
         val analysisFrame = frameProcessor.createMat()
         frameProcessor.resize(frame, analysisFrame, Size(), scale, scale, Imgproc.INTER_AREA)
 
-        analysisWidth = analysisFrame.cols().toFloat()
-        analysisHeight = analysisFrame.rows().toFloat()
+        val currentAnalysisWidth = analysisFrame.cols().toFloat()
+        val currentAnalysisHeight = analysisFrame.rows().toFloat()
         
         // 1. Geometric Detection
         var quads = finder.findCandidates(analysisFrame)
@@ -171,6 +171,8 @@ class CardDetector(
 
         // 6. Publish to UI
         scope.launch(Dispatchers.Main) {
+            analysisWidth = currentAnalysisWidth
+            analysisHeight = currentAnalysisHeight
             _trackedCards.clear(); _trackedCards.addAll(activeTracks)
             _foundSets.clear(); _foundSets.addAll(sets)
         }
