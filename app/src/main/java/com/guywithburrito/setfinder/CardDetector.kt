@@ -38,6 +38,11 @@ class CardDetector(
     private val frameProcessor: FrameProcessor = OpenCVFrameProcessor(),
     private val tracker: CardTracker = CardTracker()
 ) {
+    private val historyPersistence = com.guywithburrito.setfinder.tracking.HistoryPersistence(context)
+    private val savedSetFingerprints = mutableSetOf<String>().apply {
+        addAll(historyPersistence.getExistingFingerprints())
+    }
+
     // Observable UI State
     private val _trackedCards = mutableStateListOf<TrackedCard>()
     val trackedCards: SnapshotStateList<TrackedCard> = _trackedCards
@@ -136,9 +141,30 @@ class CardDetector(
             setCards.map { card -> identifiedOnly.first { it.card == card } }
         }
 
+        // 5. Automatic History Capture
+        sets.forEach { setTracks ->
+            val fingerprint = setTracks.mapNotNull { it.card?.let { c -> "${c.shape}|${c.pattern}|${c.count}|${c.color}" } }
+                .sorted()
+                .joinToString("||")
+            
+            if (fingerprint.isNotEmpty() && !savedSetFingerprints.contains(fingerprint)) {
+                savedSetFingerprints.add(fingerprint)
+                scope.launch(Dispatchers.IO) {
+                    val cardsToSave = setTracks.mapNotNull { track ->
+                        track.card?.let { card ->
+                            card to extractChip(frame, track, scale)
+                        }
+                    }
+                    if (cardsToSave.size == 3) {
+                        historyPersistence.saveSet(cardsToSave)
+                    }
+                }
+            }
+        }
+
         analysisFrame.release()
 
-        // 5. Publish to UI
+        // 6. Publish to UI
         scope.launch(Dispatchers.Main) {
             _trackedCards.clear(); _trackedCards.addAll(activeTracks)
             _foundSets.clear(); _foundSets.addAll(sets)

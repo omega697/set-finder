@@ -14,7 +14,13 @@ data class SavedSet(
     @SerializedName("id") val id: String = UUID.randomUUID().toString(),
     @SerializedName("timestamp") val timestamp: Long = System.currentTimeMillis(),
     @SerializedName("cards") val cards: List<SavedSetCard>
-)
+) {
+    fun calculateFingerprint(): String {
+        return cards.map { "${it.shape}|${it.pattern}|${it.count}|${it.color}" }
+            .sorted()
+            .joinToString("||")
+    }
+}
 
 data class SavedSetCard(
     @SerializedName("shape") val shape: SetCard.Shape,
@@ -58,6 +64,10 @@ class HistoryPersistence(private val context: Context) {
         } catch (e: Exception) {
             emptyList()
         }
+    }
+
+    fun getExistingFingerprints(): Set<String> {
+        return loadHistory().map { it.calculateFingerprint() }.toSet()
     }
 
     fun getCardBitmap(filename: String): Bitmap? {
