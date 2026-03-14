@@ -149,14 +149,19 @@ class CardDetector(
             
             if (fingerprint.isNotEmpty() && !savedSetFingerprints.contains(fingerprint)) {
                 savedSetFingerprints.add(fingerprint)
+                val frameClone = frame.clone() // Clone here to avoid race condition with release()
                 scope.launch(Dispatchers.IO) {
-                    val cardsToSave = setTracks.mapNotNull { track ->
-                        track.card?.let { card ->
-                            card to extractChip(frame, track, scale)
+                    try {
+                        val cardsToSave = setTracks.mapNotNull { track ->
+                            track.card?.let { card ->
+                                card to extractChip(frameClone, track, scale)
+                            }
                         }
-                    }
-                    if (cardsToSave.size == 3) {
-                        historyPersistence.saveSet(cardsToSave)
+                        if (cardsToSave.size == 3) {
+                            historyPersistence.saveSet(cardsToSave)
+                        }
+                    } finally {
+                        frameClone.release()
                     }
                 }
             }
