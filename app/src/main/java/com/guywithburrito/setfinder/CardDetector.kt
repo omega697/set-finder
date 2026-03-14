@@ -64,7 +64,7 @@ class CardDetector(
         // 1. Continuous smoothing of boundaries in the background
         scope.launch {
             while (isActive) {
-                tracker.activeCards.toList().forEach { it.updateSmoothing(it.bounds) }
+                tracker.getActiveCardsForSmoothing().forEach { it.updateSmoothing(it.bounds) }
                 delay(16)
             }
         }

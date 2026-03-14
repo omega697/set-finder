@@ -160,7 +160,7 @@ fun sortPointsClockwise(points: List<Point>): List<Point> {
  * Manages the persistent identity of cards across a temporal sequence of frames.
  */
 class CardTracker {
-    val activeCards = mutableListOf<TrackedCard>()
+    private val activeCards = mutableListOf<TrackedCard>()
     private val CORNER_THRESHOLD_PX = 60.0 // Average distance per corner
     private val EXPIRY_MS = 600L 
     private val MIN_FRAMES_FOR_ID = 3 
@@ -170,7 +170,7 @@ class CardTracker {
      * Updates tracking state based on new geometric detections.
      * Matches new quads to existing tracks using minimum corner error.
      */
-    fun updateGeometric(detectedQuads: List<List<Point>>): List<TrackedCard> {
+    fun updateGeometric(detectedQuads: List<List<Point>>): List<TrackedCard> = synchronized(activeCards) {
         val now = System.currentTimeMillis()
         val unmatchedQuads = detectedQuads.toMutableList()
         
@@ -209,21 +209,28 @@ class CardTracker {
     /**
      * Identifies which tracked cards are eligible for ML identification.
      */
-    fun getCardsForIdentification(): List<TrackedCard> {
+    fun getCardsForIdentification(): List<TrackedCard> = synchronized(activeCards) {
         val now = System.currentTimeMillis()
         return activeCards.filter { 
             it.framesSeen >= MIN_FRAMES_FOR_ID && 
             (it.card == null || now - it.lastIdentifiedTimestamp > 1000L)
-        }
+        }.toList()
     }
 
     /**
      * Assigns a physical SetCard identity to a temporal track.
      */
-    fun updateIdentification(id: String, identifiedCard: SetCard?) {
+    fun updateIdentification(id: String, identifiedCard: SetCard?) = synchronized(activeCards) {
         activeCards.find { it.id == id }?.apply {
             card = identifiedCard
             lastIdentifiedTimestamp = System.currentTimeMillis()
         }
+    }
+
+    /**
+     * Snapshot for smoothing worker.
+     */
+    fun getActiveCardsForSmoothing(): List<TrackedCard> = synchronized(activeCards) {
+        activeCards.toList()
     }
 }
