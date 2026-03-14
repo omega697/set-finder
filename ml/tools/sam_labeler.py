@@ -10,8 +10,8 @@ import json
 import base64
 from pathlib import Path
 
-# Import shared extraction logic from chip_extractor.py
-from chip_extractor import unwarp, apply_white_balance
+# Import shared standardized logic from cv_library.py
+from cv_library import unwarp, apply_white_balance, rectify
 from model_downloader import ensure_checkpoint
 
 app = Flask(__name__, static_folder='sam_labeler_web', static_url_path='')
@@ -19,7 +19,7 @@ app = Flask(__name__, static_folder='sam_labeler_web', static_url_path='')
 # --- CONFIG ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
-CHECKPOINT = os.path.join(PROJECT_ROOT, "sam_vit_b_01ec64.pth")
+CHECKPOINT = os.path.join(SCRIPT_DIR, "temp", "sam_vit_b_01ec64.pth")
 MODEL_TYPE = "vit_b"
 DEVICE = "cpu" 
 DATASET_DIR = os.path.join(PROJECT_ROOT, "dataset/yolo_pose")
@@ -64,27 +64,9 @@ def get_frame_list():
 
 # Cache
 current_frame_name = None
-current_frame_img = None
+current_frame_img_bgr = None
+current_frame_img_rgb = None
 current_predictor_set = False
-
-# --- GEOMETRY ---
-def rectify(pts):
-    """
-    Robustly orders points in a quadrilateral: [top-left, top-right, bottom-right, bottom-left].
-    """
-    pts = np.array(pts, dtype="float32").reshape((4, 2))
-    # Sort by Y coordinate
-    y_sorted = pts[np.argsort(pts[:, 1]), :]
-    # Get top and bottom points
-    top_pts = y_sorted[:2, :]
-    bottom_pts = y_sorted[2:, :]
-    # Sort top points by X
-    tl = top_pts[np.argsort(top_pts[:, 0]), :][0]
-    tr = top_pts[np.argsort(top_pts[:, 0]), :][1]
-    # Sort bottom points by X
-    bl = bottom_pts[np.argsort(bottom_pts[:, 0]), :][0]
-    br = bottom_pts[np.argsort(bottom_pts[:, 0]), :][1]
-    return np.array([tl, tr, br, bl], dtype="float32")
 
 def intersect_lines(p1, p2, p3, p4):
     x1, y1 = p1; x2, y2 = p2; x3, y3 = p3; x4, y4 = p4
@@ -132,24 +114,35 @@ def init():
 
 @app.route('/api/frame_image/<filename>')
 def frame_image(filename):
-    return send_file(os.path.join(DATASET_DIR, filename), mimetype='image/jpeg')
+    # This serves the image to the browser.
+    path = os.path.join(DATASET_DIR, filename)
+    img = cv2.imread(path)
+    if img is None: return "Not found", 404
+    
+    _, buffer = cv2.imencode('.jpg', img)
+    return send_file(io.BytesIO(buffer), mimetype='image/jpeg')
 
 @app.route('/api/frame_data/<filename>')
 def frame_data(filename):
-    global current_frame_name, current_frame_img, current_predictor_set
+    global current_frame_name, current_frame_img_bgr, current_frame_img_rgb, current_predictor_set
     path = os.path.join(DATASET_DIR, filename)
-    img = cv2.imread(path)
+    img_bgr = cv2.imread(path)
+    if img_bgr is None: return jsonify({"error": "File not found"}), 404
+    
     current_frame_name = filename
-    current_frame_img = img
+    # Internal representation: BGR for unwarping, and RGB for SAM/TF
+    current_frame_img_bgr = img_bgr.copy()
+    current_frame_img_rgb = cv2.cvtColor(current_frame_img_bgr, cv2.COLOR_BGR2RGB)
     current_predictor_set = False
     
     quads = []
     txt_path = path.replace(".jpg", ".txt")
     if os.path.exists(txt_path):
-        h, w = img.shape[:2]
+        h, w = img_bgr.shape[:2]
         with open(txt_path, 'r') as f:
             for line in f:
                 parts = list(map(float, line.strip().split()))
+                # Format: 0 cx cy w h p1x p1y 2 p2x p2y 2 p3x p3y 2 p4x p4y 2
                 if len(parts) >= 17:
                     pts = []
                     for i in range(5, 17, 3):
@@ -165,19 +158,20 @@ def frame_data(filename):
 def inspect_quad():
     data = request.json
     quad = data['quad']
-    if current_frame_img is None:
+    if current_frame_img_rgb is None:
         return jsonify({"error": "No frame loaded"}), 400
         
-    chip = unwarp(current_frame_img, np.array(quad))
-    chip_balanced = apply_white_balance(chip)
+    # Standardized extraction (RGB)
+    chip_rgb = unwarp(current_frame_img_rgb, np.array(quad))
+    chip_rgb = apply_white_balance(chip_rgb)
     
     prob = -1.0
     if card_filter:
-        chip_rgb = cv2.cvtColor(chip_balanced, cv2.COLOR_BGR2RGB)
         crop_preprocessed = tf.keras.applications.mobilenet_v2.preprocess_input(cv2.resize(chip_rgb, (224, 224)).astype(np.float32))
         prob = float(card_filter.predict(np.expand_dims(crop_preprocessed, 0), verbose=0)[0][0])
         
-    _, buffer = cv2.imencode('.jpg', chip_balanced)
+    # Convert to BGR for browser display via base64
+    _, buffer = cv2.imencode('.jpg', cv2.cvtColor(chip_rgb, cv2.COLOR_RGB2BGR))
     img_base64 = base64.b64encode(buffer).decode('utf-8')
     
     return jsonify({
@@ -192,7 +186,7 @@ def sam_click():
     x, y = data['x'], data['y']
     
     if not current_predictor_set:
-        predictor.set_image(cv2.cvtColor(current_frame_img, cv2.COLOR_BGR2RGB))
+        predictor.set_image(current_frame_img_rgb)
         current_predictor_set = True
         
     masks, scores, _ = predictor.predict(np.array([[x, y]]), np.array([1]), multimask_output=True)
@@ -205,7 +199,7 @@ def sam_click():
 
 @app.route('/api/rectify', methods=['POST'])
 def rectify_points():
-    pts = request.json['points']
+    pts = np.array(request.json['points'])
     rect = rectify(pts)
     return jsonify({"quad": rect.tolist()})
 
