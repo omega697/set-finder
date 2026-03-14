@@ -33,7 +33,17 @@ class QuadFindingAccuracyTest {
     }
 
     @Test
-    fun verifyQuadFinding_SpatialRecall() {
+    fun verifyQuadFinding_OpenCV_Recall() {
+        runRecallTest(OpenCVQuadFinder(), "OpenCV")
+    }
+
+    @Test
+    fun verifyQuadFinding_YOLO_Recall() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        runRecallTest(YOLOQuadFinder(context), "YOLO")
+    }
+
+    private fun runRecallTest(finder: QuadFinder, name: String) {
         val logBuilder = StringBuilder()
         var totalCardsExpected = 0
         var totalCardsFound = 0
@@ -44,6 +54,8 @@ class QuadFindingAccuracyTest {
             scenesTested++
             val mat = loadFullFrame("scenes/$sceneName")
             
+            // Note: YOLO wants 640x640, but the finder internal handles resizing.
+            // We use the same 'small' mat logic for fairness in IoU calculation.
             val maxDim = 1000.0
             val scale = maxDim / Math.max(mat.cols().toDouble(), mat.rows().toDouble())
             val small = Mat()
@@ -76,31 +88,31 @@ class QuadFindingAccuracyTest {
                     cardStatus.add(true)
                 } else {
                     cardStatus.add(false)
-                    logBuilder.append(String.format("  MISS scene %s: Card #%d (Best IoU: %.2f, CenterInside: %b, FoundBy: %s)\n", 
-                        sceneName, index, bestMatch.first, bestMatch.second, bestMatch.third))
+                    logBuilder.append(String.format("  MISS %s scene %s: Card #%d (Best IoU: %.2f, CenterInside: %b, FoundBy: %s)\n", 
+                        name, sceneName, index, bestMatch.first, bestMatch.second, bestMatch.third))
                 }
                 gtMat.release()
             }
             
             // Save visual debug if any misses
             if (cardStatus.any { !it }) {
-                drawAndSaveDebug(sceneName, small, gtCards, foundCandidates)
+                drawAndSaveDebug("${name}_$sceneName", small, gtCards, foundCandidates)
             }
 
-            android.util.Log.i("QuadFindingAccuracy", "$sceneName: Found $cardsFoundInScene/${gtCards.size} cards (Gen ${foundCandidates.size} unique).")
+            android.util.Log.i("QuadFindingAccuracy", "[$name] $sceneName: Found $cardsFoundInScene/${gtCards.size} cards (Gen ${foundCandidates.size} unique).")
             mat.release(); small.release()
         }
 
         val finalRecall = if (totalCardsExpected > 0) (totalCardsFound.toFloat() / totalCardsExpected) else 1f
         val avgCandidates = totalCandidatesGenerated.toFloat() / scenesTested
         
-        android.util.Log.i("QuadFindingAccuracy", "Results:\n$logBuilder")
-        android.util.Log.i("QuadFindingAccuracy", String.format("Overall Spatial Recall: %.2f%% (%d/%d cards found across %d scenes)", 
-            finalRecall * 100, totalCardsFound, totalCardsExpected, scenesTested))
-        android.util.Log.i("QuadFindingAccuracy", "Average unique candidates per scene: $avgCandidates")
+        android.util.Log.i("QuadFindingAccuracy", "Results [$name]:\n$logBuilder")
+        android.util.Log.i("QuadFindingAccuracy", String.format("[%s] Overall Spatial Recall: %.2f%% (%d/%d cards found across %d scenes)", 
+            name, finalRecall * 100, totalCardsFound, totalCardsExpected, scenesTested))
+        android.util.Log.i("QuadFindingAccuracy", "[$name] Average unique candidates per scene: $avgCandidates")
 
         if (finalRecall < 0.80f) {
-            throw AssertionError(String.format("Quad Finding recall too low: %.2f%%. See logcat for misses.", finalRecall * 100))
+            throw AssertionError(String.format("[%s] Quad Finding recall too low: %.2f%%. See logcat for misses.", name, finalRecall * 100))
         }
     }
 
