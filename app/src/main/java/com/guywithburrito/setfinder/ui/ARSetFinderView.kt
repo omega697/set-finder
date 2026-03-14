@@ -15,7 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.guywithburrito.setfinder.CardDetector
-import com.guywithburrito.setfinder.cv.OpenCVQuadFinder
+import com.guywithburrito.setfinder.cv.QuadFinder
 import com.guywithburrito.setfinder.tracking.SettingsManager
 import io.github.sceneview.ar.ARSceneView
 import io.github.sceneview.node.Node
@@ -39,7 +39,7 @@ fun ARSetFinderView(
         CardDetector(
             context = context,
             scope = coroutineScope,
-            finder = OpenCVQuadFinder()
+            finder = QuadFinder.getInstance(context)
         )
     }
     

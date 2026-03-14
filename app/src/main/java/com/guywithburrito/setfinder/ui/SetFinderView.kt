@@ -23,7 +23,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.guywithburrito.setfinder.CardVisionAnalyzer
 import com.guywithburrito.setfinder.CardDetector
-import com.guywithburrito.setfinder.cv.OpenCVQuadFinder
+import com.guywithburrito.setfinder.cv.QuadFinder
 import com.guywithburrito.setfinder.tracking.SettingsManager
 import org.opencv.core.Point
 import java.util.concurrent.Executors
@@ -44,7 +44,7 @@ fun SetFinderView(
         CardDetector(
             context = context,
             scope = coroutineScope,
-            finder = OpenCVQuadFinder()
+            finder = QuadFinder.getInstance(context)
         )
     }
     val setAnalyzer = remember { CardVisionAnalyzer(cardDetector, settingsManager, coroutineScope) }

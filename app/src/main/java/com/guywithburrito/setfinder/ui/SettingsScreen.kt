@@ -32,7 +32,13 @@ fun SettingsScreen(onBackClicked: () -> Unit) {
     val highlightColors = remember { mutableStateListOf<Pair<String, Color>>().apply { addAll(settingsManager.highlightColors) } }
     var sensitivity by remember { mutableFloatStateOf(settingsManager.sensitivity) }
     var showLabels by remember { mutableStateOf(settingsManager.showLabels) }
+    var useYOLO by remember { mutableStateOf(settingsManager.useYOLO) }
     var arMode by remember { mutableStateOf(settingsManager.arMode) }
+
+    // Switch implementation when setting changes
+    LaunchedEffect(useYOLO) {
+        com.guywithburrito.setfinder.cv.QuadFinder.setImplementation(context, useYOLO)
+    }
 
     val scope = rememberCoroutineScope()
     val lazyListState = rememberLazyListState()
@@ -161,6 +167,26 @@ fun SettingsScreen(onBackClicked: () -> Unit) {
                     onCheckedChange = {
                         showLabels = it
                         settingsManager.showLabels = it
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = "Use YOLO Model", style = MaterialTheme.typography.h6)
+                    Text(
+                        text = "Use pose-based neural network for robust corner detection. More stable in variable lighting.",
+                        style = MaterialTheme.typography.caption,
+                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+                Switch(
+                    checked = useYOLO,
+                    onCheckedChange = {
+                        useYOLO = it
+                        settingsManager.useYOLO = it
                     }
                 )
             }

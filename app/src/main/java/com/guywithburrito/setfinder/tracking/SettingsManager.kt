@@ -68,4 +68,8 @@ class SettingsManager(context: Context) {
     var singleCardMode: Boolean
         get() = prefs.getBoolean("single_card_mode", false)
         set(value) = prefs.edit().putBoolean("single_card_mode", value).apply()
+
+    var useYOLO: Boolean
+        get() = prefs.getBoolean("use_yolo", false)
+        set(value) = prefs.edit().putBoolean("use_yolo", value).apply()
 }
