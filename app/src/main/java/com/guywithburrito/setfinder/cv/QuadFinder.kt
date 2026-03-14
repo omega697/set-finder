@@ -1,5 +1,6 @@
 package com.guywithburrito.setfinder.cv
 
+import android.content.Context
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
 
@@ -23,13 +24,46 @@ interface QuadFindingStrategy {
 interface QuadFinder {
     fun findCandidates(mat: Mat): List<MatOfPoint2f>
     fun findCandidatesFull(mat: Mat): List<CandidateQuad>
+
+    companion object {
+        private var instance: DelegatingQuadFinder? = null
+
+        fun getInstance(context: Context): QuadFinder {
+            return instance ?: synchronized(this) {
+                instance ?: DelegatingQuadFinder(OpenCVQuadFinder()).also { instance = it }
+            }
+        }
+
+        /**
+         * Dynamically switches implementation.
+         */
+        fun setImplementation(context: Context, useYOLO: Boolean) {
+            val delegator = getInstance(context) as DelegatingQuadFinder
+            delegator.delegate = if (useYOLO) {
+                YOLOQuadFinder(context)
+            } else {
+                OpenCVQuadFinder()
+            }
+        }
+    }
+}
+
+/**
+ * A QuadFinder that delegates to another implementation.
+ * Allows switching strategies (e.g. OpenCV vs YOLO) at runtime.
+ */
+internal class DelegatingQuadFinder(initialFinder: QuadFinder) : QuadFinder {
+    var delegate: QuadFinder = initialFinder
+
+    override fun findCandidates(mat: Mat) = delegate.findCandidates(mat)
+    override fun findCandidatesFull(mat: Mat) = delegate.findCandidatesFull(mat)
 }
 
 /**
  * High-precision OpenCV-based QuadFinder using margin-based lightness/color validation.
  * Optimized to ignore background clutter (keyboards/desks) by verifying card stock.
  */
-class OpenCVQuadFinder(private val settingsManager: com.guywithburrito.setfinder.tracking.SettingsManager? = null) : QuadFinder {
+internal class OpenCVQuadFinder(private val settingsManager: com.guywithburrito.setfinder.tracking.SettingsManager? = null) : QuadFinder {
 
     override fun findCandidates(mat: Mat): List<MatOfPoint2f> {
         return findCandidatesFull(mat).map { it.quad }
